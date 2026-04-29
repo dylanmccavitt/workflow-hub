@@ -1,0 +1,35 @@
+{
+  "name": "workflow-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first control plane for Linear, Symphony, Codex, Cursor agents, PR review, and iOS simulator/device workflows.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && electron .\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "electron .",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck",
+    "check": "npm run typecheck && npm run build",
+    "workflow": "node scripts/workflow-hub.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "electron": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "wait-on": "latest"
+  }
+}

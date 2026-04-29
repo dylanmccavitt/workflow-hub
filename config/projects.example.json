@@ -1,0 +1,19 @@
+{
+  "projects": [
+    {
+      "id": "chores",
+      "displayName": "ChoreLadder / Still Haven't",
+      "canonicalPath": "/Users/dylanmccavitt/projects/chores",
+      "workspaceRoots": [
+        "/Users/dylanmccavitt/.codex/symphony-workspaces/chores",
+        "/Users/dylanmccavitt/.codex/worktrees"
+      ],
+      "xcode": {
+        "project": "ChoreLadder.xcodeproj",
+        "scheme": "ChoreLadder",
+        "bundleId": "com.dylanmccavitt.choreladder",
+        "simulatorName": "iPhone 17 Pro"
+      }
+    }
+  ]
+}

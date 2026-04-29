@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Hub Runners"
+  short_description: "Build Cursor and Codex runner adapters."
+  default_prompt: "Use this skill to add or debug Cursor SDK and Codex runner support in Workflow Hub."

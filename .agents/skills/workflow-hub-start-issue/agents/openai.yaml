@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Hub Start Issue"
+  short_description: "Start issue work in the right worktree."
+  default_prompt: "Use this skill to start or resume a Workflow Hub Linear issue in the correct branch and worktree."

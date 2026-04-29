@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Hub UI"
+  short_description: "Build the Codex-style desktop UI."
+  default_prompt: "Use this skill to build or polish Workflow Hub's Codex-style desktop UI."

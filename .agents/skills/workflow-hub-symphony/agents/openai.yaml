@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Hub Symphony"
+  short_description: "Expose Symphony state in Workflow Hub."
+  default_prompt: "Use this skill to work on Symphony state, queue, and run visibility in Workflow Hub."

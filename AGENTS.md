@@ -19,6 +19,12 @@
 - One issue = one branch = one worktree = one Codex thread.
 - Keep `main` as the canonical checkout.
 - Do implementation in an issue worktree, then open a PR for review.
+- Use repo-local skills in `.agents/skills/` when the task matches them:
+  - `workflow-hub-start-issue` for issue startup, branch/worktree setup, and handoff flow.
+  - `workflow-hub-ios-review` for Simulator, device, Xcode, and issue-worktree review automation.
+  - `workflow-hub-symphony` for Symphony queue/state/run visibility.
+  - `workflow-hub-runners` for Cursor SDK, Codex, and runner adapter work.
+  - `workflow-hub-ui` for Codex-style Electron/React UI work.
 - Use TypeScript for renderer code.
 - Keep Electron main/preload code small and security-oriented.
 - Do not put secrets in tracked files.

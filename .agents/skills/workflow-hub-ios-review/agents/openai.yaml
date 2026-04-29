@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Hub iOS Review"
+  short_description: "Launch iOS review from issue worktrees."
+  default_prompt: "Use this skill to review an iOS change from the correct Workflow Hub issue worktree."

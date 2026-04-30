@@ -6,9 +6,11 @@ const isDev = !app.isPackaged;
 const localApiModuleUrl = pathToFileURL(
   path.join(__dirname, "..", "scripts", "lib", "local-api-service.mjs")
 ).href;
+const projectConfigModuleUrl = pathToFileURL(
+  path.join(__dirname, "..", "scripts", "lib", "project-config.mjs")
+).href;
 let localApiServicePromise;
 
-<<<<<<< HEAD
 async function getLocalApiService() {
   if (!localApiServicePromise) {
     localApiServicePromise = import(localApiModuleUrl)
@@ -22,7 +24,7 @@ ipcMain.handle("workflow-hub:get-issue-state", async (_event, issueId) => {
   const localApiService = await getLocalApiService();
   return localApiService.getIssueState(issueId);
 });
-=======
+
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {
     normalizeIssueId,
@@ -56,7 +58,6 @@ async function resolveIssueWorkspace(_event, inputIssueId) {
 }
 
 ipcMain.handle("workflow-hub:resolve-issue-workspace", resolveIssueWorkspace);
->>>>>>> 6e3f02e ([age-350]: add issue workspace resolver)
 
 function createWindow() {
   const mainWindow = new BrowserWindow({

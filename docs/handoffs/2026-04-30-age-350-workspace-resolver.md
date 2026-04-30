@@ -6,6 +6,8 @@ Implemented issue workspace resolution and CLI open/status commands on `feat/age
 
 The CLI now resolves issue IDs across configured worktree roots, ranks exact templated issue paths ahead of looser directory-name matches, and reports canonical checkout state separately from issue workspace state. `status` and `open` can infer the issue ID when run from inside a configured issue worktree, while the canonical checkout is not treated as an issue workspace.
 
+Post-review fix: after `AGE-349` merged and this branch was rebased/restacked, `electron/main.cjs` had unresolved conflict markers. Those markers were removed, the missing project-config module URL was added, and both the `AGE-349` local API handler and `AGE-350` workspace resolver IPC handler remain registered.
+
 ## Next
 
 Review the PR and exercise the manual CLI path from this worktree:
@@ -23,7 +25,7 @@ For iOS projects with `ios` config, `npm run workflow -- open <issue-id> --xcode
 
 - `--zed`, `--finder`, `--terminal`, and `--xcode` call macOS `open`; manual review should use `--print` first if the reviewer only wants to inspect the resolved target.
 - The resolver intentionally scans configured roots and direct child directories only. Deeper or differently named worktrees should be added through project config or a future registry-backed slice.
-- The local canonical checkout at `/Users/dylanmccavitt/projects/workflow-hub` is clean but currently behind `origin/main` by one commit; this issue branch was created from current `origin/main`.
+- The local canonical checkout at `/Users/dylanmccavitt/projects/workflow-hub` is clean but behind `origin/main`; sync it after merge before starting the next issue.
 
 ## Files
 
@@ -50,6 +52,7 @@ For iOS projects with `ios` config, `npm run workflow -- open <issue-id> --xcode
 - `node scripts/workflow-hub.mjs status AGE-350 --json`
 - `node scripts/workflow-hub.mjs open --print`
 - `cd /Users/dylanmccavitt/projects/workflow-hub && node /Users/dylanmccavitt/.codex/symphony-workspaces/workflow-hub/AGE-350/scripts/workflow-hub.mjs status`
+- Post-review fix: `npm rebuild better-sqlite3`, `npm run check`, `git diff --check`, `npm run workflow -- status AGE-350 --json`
 
 ## Review Notes
 

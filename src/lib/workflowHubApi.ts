@@ -1,5 +1,6 @@
 export type AdapterStatus = "available" | "unavailable" | "not-configured" | "not-found";
 export type EntityStatus = AdapterStatus;
+export type SymphonyNormalizedState = "queue" | "active" | "complete" | "blocked" | "failed" | "unknown";
 
 export interface AdapterState {
   id: string;
@@ -148,6 +149,51 @@ export interface RunnerApiState {
   adapter: AdapterState;
 }
 
+export interface SymphonyIssueState {
+  identifier: string;
+  issueId?: string;
+  linearUrl?: string;
+  linearStatus?: string;
+  normalizedState: SymphonyNormalizedState;
+  source: "endpoint" | "linear";
+  reason: string;
+  symphonyStatus?: string;
+  workspacePath?: string;
+  workerHost?: string;
+  sessionId?: string;
+  attempt?: number;
+  dueAt?: string;
+  startedAt?: string;
+  lastEvent?: string;
+  lastEventAt?: string;
+  lastMessage?: string;
+  lastError?: string;
+  tokens?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
+}
+
+export interface SymphonyApiState {
+  status: EntityStatus;
+  running: boolean;
+  source: "endpoint" | "logs" | "none";
+  endpoint?: string;
+  generatedAt?: string;
+  detail: string;
+  counts: Record<SymphonyNormalizedState, number>;
+  issues: SymphonyIssueState[];
+  selectedIssue?: SymphonyIssueState;
+  logs?: {
+    root?: string;
+    latestPath?: string;
+    latestLine?: string;
+    latestAt?: string;
+  };
+  adapter: AdapterState;
+}
+
 export interface ReviewApiState {
   target: "simulator" | "device";
   status: EntityStatus;
@@ -167,6 +213,7 @@ export interface WorkflowIssueState {
   issue: IssueApiState;
   project: ProjectApiState;
   workspace: WorkspaceApiState;
+  symphony?: SymphonyApiState;
   linearStatusActions: LinearStatusAction[];
   runners: RunnerApiState[];
   reviews: ReviewApiState[];

@@ -18,6 +18,9 @@ import {
   findWorkspace as defaultFindWorkspace,
   readProjectConfig as defaultReadProjectConfig
 } from "./project-config.mjs";
+import {
+  readSymphonyState as defaultReadSymphonyState
+} from "./symphony-state.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -48,6 +51,7 @@ export function createLocalApiService(options = {}) {
   const linearCacheStaleAfterMs = options.linearCacheStaleAfterMs ?? DEFAULT_LINEAR_CACHE_STALE_AFTER_MS;
   const syncLinearProjectIssues = options.syncLinearProjectIssues ?? defaultSyncLinearProjectIssues;
   const applyLinearStatusAction = options.applyLinearStatusAction ?? defaultApplyLinearStatusAction;
+  const readSymphonyState = options.readSymphonyState ?? defaultReadSymphonyState;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -90,17 +94,21 @@ export function createLocalApiService(options = {}) {
           "Workspace resolution is unavailable because project config could not be loaded."
         );
 
+        const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
+        const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
+
         return buildIssueResponse({
           issue,
           project: unavailableProjectState(projectConfigAdapter),
-          workspace: unavailableWorkspaceState(issueId, workspaceAdapter),
+          workspace,
           gitAdapter: notConfiguredAdapter(
             "git",
             "Git",
             "Git state was not read because project config is unavailable."
           ),
           projectConfigAdapter,
-          workspaceAdapter
+          workspaceAdapter,
+          symphonyState
         });
       }
 
@@ -127,17 +135,21 @@ export function createLocalApiService(options = {}) {
           syncLinearProjectIssues
         });
 
+        const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
+        const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
+
         return buildIssueResponse({
           issue,
           project: projectStateFromProject(project, projectConfigAdapter),
-          workspace: unavailableWorkspaceState(issueId, workspaceAdapter),
+          workspace,
           gitAdapter: notConfiguredAdapter(
             "git",
             "Git",
             "Git state was not read because workspace resolution failed."
           ),
           projectConfigAdapter,
-          workspaceAdapter
+          workspaceAdapter,
+          symphonyState
         });
       }
 
@@ -152,6 +164,12 @@ export function createLocalApiService(options = {}) {
       const workspaceState = workspaceMatch
         ? workspaceStateFromMatch(issueId, workspaceMatch, gitRunner)
         : missingWorkspaceState(issueId);
+      const symphonyState = await readSymphonyState({
+        issueId,
+        issue,
+        workspace: workspaceState.workspace,
+        clock
+      });
 
       return buildIssueResponse({
         issue,
@@ -159,7 +177,8 @@ export function createLocalApiService(options = {}) {
         workspace: workspaceState.workspace,
         gitAdapter: workspaceState.gitAdapter,
         projectConfigAdapter,
-        workspaceAdapter: workspaceState.adapter
+        workspaceAdapter: workspaceState.adapter,
+        symphonyState
       });
     },
 
@@ -246,9 +265,10 @@ function buildIssueResponse({
   workspace,
   gitAdapter,
   projectConfigAdapter,
-  workspaceAdapter
+  workspaceAdapter,
+  symphonyState
 }) {
-  const runnerStates = buildRunnerStates();
+  const runnerStates = buildRunnerStates(symphonyState);
   const reviewStates = buildReviewStates(project);
   const pullRequestStates = buildPullRequestStates();
 
@@ -257,6 +277,7 @@ function buildIssueResponse({
     issue,
     project,
     workspace,
+    symphony: symphonyState,
     linearStatusActions: LINEAR_STATUS_ACTIONS,
     runners: runnerStates,
     reviews: reviewStates,
@@ -441,17 +462,17 @@ function unavailableWorkspaceState(issueId, adapter) {
   };
 }
 
-function buildRunnerStates() {
+function buildRunnerStates(symphonyState) {
   return [
     {
       kind: "Symphony",
       role: "Workflow queue",
-      status: "unavailable",
-      detail: "Symphony queue/state discovery is planned but not implemented in this API slice.",
-      adapter: unavailableAdapter(
+      status: symphonyState?.status ?? "unavailable",
+      detail: symphonyRunnerDetail(symphonyState),
+      adapter: symphonyState?.adapter ?? unavailableAdapter(
         "runner:symphony",
         "Symphony runner",
-        "Symphony adapter unavailable until AGE-356 wires queue and dispatch state.",
+        "Symphony queue/state discovery is unavailable.",
         "AGE-356"
       )
     },
@@ -480,6 +501,21 @@ function buildRunnerStates() {
       )
     }
   ];
+}
+
+function symphonyRunnerDetail(symphonyState) {
+  if (!symphonyState) {
+    return "Symphony queue/state discovery is unavailable.";
+  }
+
+  if (symphonyState.selectedIssue) {
+    const selected = symphonyState.selectedIssue;
+    const location = selected.workspacePath ? " Worktree linked." : "";
+    const session = selected.sessionId ? " Session linked." : "";
+    return `${selected.identifier} is ${selected.normalizedState}. ${selected.reason}${location}${session}`;
+  }
+
+  return symphonyState.detail;
 }
 
 function buildReviewStates(project) {

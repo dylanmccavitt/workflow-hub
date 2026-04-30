@@ -59,3 +59,15 @@ Use Linear state to control dispatch. Comments are context only unless they use 
 The default Symphony clone target is `git@github.com:DylanMcCavitt/workflow-hub.git`.
 
 Issue workspaces should push branches to that remote and open PRs from those branches so GitHub and Linear can populate review state.
+
+## Workflow Hub State Adapter
+
+Workflow Hub reads Symphony passively. It does not call refresh, start workers, or update Linear from the visibility path.
+
+Primary source:
+
+```text
+GET http://127.0.0.1:${SYMPHONY_PORT:-4002}/api/v1/state
+```
+
+The adapter normalizes Symphony `running` entries as active work and `retrying` entries as queue/backoff work. When a selected issue is not present in the Symphony snapshot, Workflow Hub may infer complete, blocked, queue, active, or unknown from the cached Linear issue status and resolved worktree. If the endpoint is unreachable or returns a snapshot error, the adapter reports unavailable state and includes the latest readable line from `${SYMPHONY_LOGS_ROOT:-~/.codex/symphony-logs/workflow-hub}/log/symphony.log*` when present.

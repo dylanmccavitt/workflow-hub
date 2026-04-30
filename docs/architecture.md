@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, and a main-process local API service for resolving selected issue state through typed IPC. Symphony, runner, review-control, and PR-provider adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, and a main-process local API service for resolving selected issue state through typed IPC. Codex, Cursor SDK, review-control, and PR-provider adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
@@ -19,6 +19,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, and PR state contracts. It owns project config reads, scoped git probes, and unavailable-adapter responses.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
 - `scripts/lib/linear-writes.mjs`: Explicit Linear status action adapter. It maps allowed workflow states, enforces confirmation for dispatching or externally visible states, updates the persistent `## Codex Workpad` comment by merging structured sections, and leaves passive sync read-only.
+- `scripts/lib/symphony-state.mjs`: Passive Symphony observability adapter. It reads the documented local JSON state endpoint, falls back to documented log files when the endpoint is unavailable, and normalizes queue, active, complete, blocked, failed, and unknown state without starting workers or mutating Linear.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
 - `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
@@ -42,8 +43,8 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 
 1. User selects a Linear issue.
 2. Hub asks the main-process local API for project, issue, workspace, runner, review, and PR state.
-3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, and marks missing adapters as recoverable unavailable state.
-4. Hub shows branch, PR, runner, and Symphony state.
+3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, reads passive Symphony observability state, and marks missing adapters as recoverable unavailable state.
+4. Hub shows branch, PR, runner, and normalized Symphony state.
 5. User launches simulator/device review from the issue worktree.
 6. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
 

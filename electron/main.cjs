@@ -1,29 +1,85 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const isDev = !app.isPackaged;
-const localApiModuleUrl = pathToFileURL(
-  path.join(__dirname, "..", "scripts", "lib", "local-api-service.mjs")
-).href;
+const repoRoot = path.join(__dirname, "..");
+const workflowCliPath = path.join(repoRoot, "scripts", "workflow-hub.mjs");
 const projectConfigModuleUrl = pathToFileURL(
-  path.join(__dirname, "..", "scripts", "lib", "project-config.mjs")
+  path.join(repoRoot, "scripts", "lib", "project-config.mjs")
 ).href;
-let localApiServicePromise;
 
-async function getLocalApiService() {
-  if (!localApiServicePromise) {
-    localApiServicePromise = import(localApiModuleUrl)
-      .then(({ createLocalApiService }) => createLocalApiService());
-  }
-
-  return localApiServicePromise;
+function nodeExecutable() {
+  return process.env.WORKFLOW_HUB_NODE_PATH
+    ?? process.env.npm_node_execpath
+    ?? process.env.NODE
+    ?? "node";
 }
 
-ipcMain.handle("workflow-hub:get-issue-state", async (_event, issueId) => {
-  const localApiService = await getLocalApiService();
-  return localApiService.getIssueState(issueId);
-});
+function startupIssueQuery() {
+  const issueId = process.env.WORKFLOW_HUB_ISSUE_ID ?? path.basename(process.cwd());
+
+  if (!/^[a-z]+-\d+$/i.test(issueId)) {
+    return "";
+  }
+
+  return `?issue=${encodeURIComponent(issueId.toUpperCase())}`;
+}
+
+function runWorkflowJsonCommand(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(nodeExecutable(), [workflowCliPath, ...args, "--json"], {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("Workflow Hub local API command timed out."));
+    }, 15000);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `Workflow Hub local API command exited with code ${code}.`));
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(new Error(`Workflow Hub local API returned invalid JSON: ${error.message}`));
+      }
+    });
+  });
+}
+
+async function getIssueState(_event, issueId) {
+  if (typeof issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+
+  return runWorkflowJsonCommand(["api-state", issueId]);
+}
+
+ipcMain.handle("workflow-hub:get-issue-state", getIssueState);
 
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {
@@ -81,7 +137,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL("http://127.0.0.1:5173");
+    mainWindow.loadURL(`http://127.0.0.1:5173/${startupIssueQuery()}`);
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }

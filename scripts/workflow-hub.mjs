@@ -10,12 +10,24 @@ import {
   requireIosConfig,
   xcodeTargetArgs
 } from "./lib/project-config.mjs";
+import {
+  createRegistryRepository,
+  openRegistryDatabase
+} from "./lib/registry-db.mjs";
+import {
+  syncLinearProjectIssues
+} from "./lib/linear-sync.mjs";
+import {
+  createLocalApiService
+} from "./lib/local-api-service.mjs";
 
 function usage() {
   console.log(`workflow-hub
 
 Usage:
   npm run workflow -- config [--json]
+  npm run workflow -- api-state [ISSUE_ID] --json
+  npm run workflow -- linear-sync [PROJECT_ID] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
   npm run workflow -- review ISSUE_ID --sim|--device
@@ -43,6 +55,55 @@ function printConfig(flag) {
       ? `Local overrides: ${registry.source.localConfigPath}`
       : "Local overrides: config/projects.json not found"
   ].join("\n"));
+}
+
+async function linearSync(projectIdOrFlag, flag) {
+  const registry = readProjectConfig();
+  const json = projectIdOrFlag === "--json" || flag === "--json";
+  const requestedProjectId = projectIdOrFlag && !projectIdOrFlag.startsWith("--")
+    ? projectIdOrFlag
+    : "workflow-hub";
+  const project = registry.projects.find((candidate) => candidate.id === requestedProjectId);
+
+  if (!project) {
+    console.error(`No configured project found for ${requestedProjectId}.`);
+    process.exit(1);
+  }
+
+  const repository = createRegistryRepository(openRegistryDatabase());
+
+  try {
+    const sync = await syncLinearProjectIssues({ project, repository, force: true });
+    const cachedIssues = repository.listProjectIssues(project.id);
+    const payload = {
+      project: {
+        id: project.id,
+        displayName: project.displayName,
+        linear: project.linear
+      },
+      sync,
+      cachedIssueCount: cachedIssues.length,
+      issues: cachedIssues.map((issue) => ({
+        identifier: issue.identifier,
+        title: issue.title,
+        status: issue.status,
+        priority: issue.priority,
+        cache: issue.metadata.linearSync
+      }))
+    };
+
+    if (json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log([
+      `${project.displayName}: ${sync.detail}`,
+      `Cached issues: ${cachedIssues.length}`
+    ].join("\n"));
+  } finally {
+    repository.close();
+  }
 }
 
 function parseIssueAndFlag(args, defaultFlag) {
@@ -76,6 +137,20 @@ function selectIssueId(rawIssueId, registry) {
   }
 
   throw new Error("No ISSUE_ID provided and current directory is not inside a configured issue worktree.");
+}
+
+async function apiState(args) {
+  const registry = readProjectConfig();
+  const { issueId: rawIssueId, flag } = parseIssueAndFlag(args, "--json");
+
+  if (flag !== "--json") {
+    throw new Error(`Unknown api-state flag: ${flag}`);
+  }
+
+  const issueId = selectIssueId(rawIssueId, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.getIssueState(issueId);
+  console.log(JSON.stringify(payload, null, 2));
 }
 
 function requireResolvedWorkspace(issueId, registry) {
@@ -232,6 +307,16 @@ if (!command) {
 try {
   if (command === "config") {
     printConfig(args[0]);
+    process.exit(0);
+  }
+
+  if (command === "linear-sync") {
+    await linearSync(args[0], args[1]);
+    process.exit(0);
+  }
+
+  if (command === "api-state") {
+    await apiState(args);
     process.exit(0);
   }
 

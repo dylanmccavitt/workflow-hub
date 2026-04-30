@@ -37,6 +37,7 @@ import type {
 } from "./lib/types";
 import type {
   AdapterState,
+  LinearIssueDetails,
   PullRequestApiState,
   ReviewApiState,
   RunnerApiState,
@@ -53,8 +54,6 @@ const statuses: IssueStatus[] = [
   "Blocked",
   "Done"
 ];
-
-const selected = issues[0];
 
 function classNameFor(value: string) {
   return value.toLowerCase().replace(/[ /]+/g, "-");
@@ -102,7 +101,47 @@ function reviewLabel(review: ReviewApiState | undefined) {
   return `${labelForStatus(review.target)} review: ${labelForStatus(review.status)}`;
 }
 
-function StatusPill({ status }: { status: IssueStatus }) {
+function issueReferenceText(issue: { identifier: string; title: string } | undefined) {
+  if (!issue) return "None";
+  return `${issue.identifier} ${issue.title}`;
+}
+
+function issueReferenceListText(issues: Array<{ identifier: string; title: string }>) {
+  return issues.length > 0 ? issues.map(issueReferenceText).join(", ") : "None";
+}
+
+function labelsText(linearIssue: LinearIssueDetails | undefined) {
+  return linearIssue?.labels.length ? linearIssue.labels.map((label) => label.name).join(", ") : "None";
+}
+
+function workpadText(linearIssue: LinearIssueDetails | undefined) {
+  if (!linearIssue?.codexWorkpad) return "Not found";
+  return linearIssue.codexWorkpad.updatedAt
+    ? `Updated ${formatTimestamp(linearIssue.codexWorkpad.updatedAt)}`
+    : "Found";
+}
+
+function cacheText(issueState: WorkflowIssueState | undefined) {
+  const cache = issueState?.issue.linear?.cache ?? issueState?.issue.cache;
+  if (!cache) return issueState?.issue.adapter.detail ?? "Waiting for Linear";
+
+  if (cache.status === "stale") return "Stale";
+  return cache.stale ? `${labelForStatus(cache.status)} stale` : labelForStatus(cache.status);
+}
+
+function formatTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function StatusPill({ status }: { status: string }) {
   return <span className={`status-pill ${classNameFor(status)}`}>{status}</span>;
 }
 
@@ -116,9 +155,22 @@ function ToneIcon({ tone }: { tone: Tone }) {
   return <CircleDot size={18} />;
 }
 
-function IssueRow({ issue, active = false }: { issue: IssueCard; active?: boolean }) {
+function IssueRow({
+  issue,
+  active = false,
+  onSelect
+}: {
+  issue: IssueCard;
+  active?: boolean;
+  onSelect: (issueId: string) => void;
+}) {
   return (
-    <button className={`issue-row ${active ? "active" : ""}`} type="button">
+    <button
+      aria-pressed={active}
+      className={`issue-row ${active ? "active" : ""}`}
+      onClick={() => onSelect(issue.id)}
+      type="button"
+    >
       <span className="issue-row-top">
         <span className="issue-id">{issue.id}</span>
         <StatusPill status={issue.status} />
@@ -132,6 +184,14 @@ function IssueRow({ issue, active = false }: { issue: IssueCard; active?: boolea
       </span>
     </button>
   );
+}
+
+function initialSelectedIssueId() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedIssueId = params.get("issue")?.toUpperCase();
+  return issues.some((issue) => issue.id === requestedIssueId)
+    ? requestedIssueId
+    : issues[0].id;
 }
 
 function ActionButton({
@@ -260,11 +320,19 @@ function RunnerRow({ runner }: { runner: RunnerBackend }) {
 }
 
 export function App() {
+  const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
+  const selected = useMemo(
+    () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
+    [selectedIssueId]
+  );
 
   useEffect(() => {
     let isActive = true;
+
+    setIssueState(undefined);
+    setApiError(undefined);
 
     if (!window.workflowHub?.issues?.getState) {
       setApiError("Desktop API unavailable in renderer preview");
@@ -285,10 +353,14 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [selected.id]);
 
   const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
   const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
+  const linearIssue = issueState?.issue.linear;
+  const displayTitle = linearIssue?.title ?? selected.title;
+  const displayStatus = linearIssue?.status ?? selected.status;
+  const displayProject = issueState?.project.displayName ?? selected.repo;
   const doneCount = useMemo(
     () => acceptanceCriteria.filter((criterion) => criterion.status === "Done").length,
     []
@@ -306,6 +378,7 @@ export function App() {
   );
   const pullRequestState = issueState?.pullRequests[0];
   const reviewState = issueState?.reviews[0];
+  const linearPullRequest = linearIssue?.pullRequests[0];
 
   return (
     <main className="app-shell">
@@ -350,7 +423,12 @@ export function App() {
 
         <section className="issue-list" aria-label="Issues">
           {issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} active={issue.id === selected.id} />
+            <IssueRow
+              key={issue.id}
+              issue={issue}
+              active={issue.id === selected.id}
+              onSelect={setSelectedIssueId}
+            />
           ))}
         </section>
       </aside>
@@ -358,15 +436,15 @@ export function App() {
       <section className="workspace">
         <header className="workspace-header">
           <div>
-            <p className="eyebrow">{selected.repo}</p>
+            <p className="eyebrow">{displayProject}</p>
             <h2>
               <span>{selected.id}</span>
-              {selected.title}
+              {displayTitle}
             </h2>
           </div>
           <div className="header-metrics" aria-label="Track progress">
             <span>{doneCount}/{acceptanceCriteria.length} criteria</span>
-            <StatusPill status={selected.status} />
+            <StatusPill status={displayStatus} />
           </div>
         </header>
 
@@ -439,6 +517,40 @@ export function App() {
         </section>
 
         <section className="inspector-section">
+          <h2>Linear</h2>
+          <dl>
+            <div>
+              <dt>Status</dt>
+              <dd>{linearIssue?.status ?? labelForStatus(issueState?.issue.status ?? "loading")}</dd>
+            </div>
+            <div>
+              <dt>Priority</dt>
+              <dd>{linearIssue?.priorityLabel ?? "Unknown"}</dd>
+            </div>
+            <div>
+              <dt>Labels</dt>
+              <dd>{labelsText(linearIssue)}</dd>
+            </div>
+            <div>
+              <dt>Parent</dt>
+              <dd>{issueReferenceText(linearIssue?.parent)}</dd>
+            </div>
+            <div>
+              <dt>Blockers</dt>
+              <dd>{issueReferenceListText(linearIssue?.blockers ?? [])}</dd>
+            </div>
+            <div>
+              <dt>Workpad</dt>
+              <dd>{workpadText(linearIssue)}</dd>
+            </div>
+            <div>
+              <dt>Cache</dt>
+              <dd>{cacheText(issueState)}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="inspector-section">
           <h2>Sources</h2>
           <div className="signal-list">
             {sourceSignals.map((signal) => (
@@ -458,7 +570,7 @@ export function App() {
           <h2>Review</h2>
           <div className="review-line">
             <GitPullRequest size={16} />
-            <span>{selected.pr ?? pullRequestLabel(pullRequestState)}</span>
+            <span>{selected.pr ?? linearPullRequest?.title ?? pullRequestLabel(pullRequestState)}</span>
           </div>
           <div className="review-line">
             <Workflow size={16} />

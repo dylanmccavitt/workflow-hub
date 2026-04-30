@@ -755,19 +755,38 @@ dd {
 }
 
 .check-list,
-.review-comment-list {
+.review-comment-list,
+.stack-list {
   display: grid;
   gap: 8px;
 }
 
 .check-row,
-.review-comment-row {
+.review-comment-row,
+.stack-branch-row {
   display: grid;
   gap: 8px;
   padding: 10px;
   border: 1px solid #2f3128;
   border-radius: 8px;
   background: #151712;
+}
+
+.stack-branch-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  color: #d9d4c8;
+  text-decoration: none;
+}
+
+.stack-branch-row.current {
+  border-color: #425936;
+  background: #172015;
+}
+
+.stack-branch-row:hover {
+  text-decoration: none;
+  border-color: #46513f;
 }
 
 .check-row.failing {
@@ -784,14 +803,17 @@ dd {
 
 .check-row-main span,
 .check-row-main a,
-.review-comment-row strong {
+.review-comment-row strong,
+.stack-branch-row span {
   font-size: 12px;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .check-row-main p,
 .annotation-list p,
-.review-comment-row span {
+.review-comment-row span,
+.stack-branch-row strong {
   color: #b9baad;
   font-size: 12px;
   line-height: 1.4;

@@ -138,6 +138,57 @@ function githubFixtureState() {
   };
 }
 
+function graphiteFixtureState() {
+  return {
+    provider: "Graphite",
+    status: "available",
+    detail: "Graphite stack detected for feat/age-349-local-api-boundary: position 1/1; Submitted; Open / Clean; no parent PR. no child PRs.",
+    candidates: [
+      {
+        source: "github-pr",
+        label: "GitHub PR #12",
+        number: 12,
+        branch: "feat/age-349-local-api-boundary",
+        repository: {
+          owner: "DylanMcCavitt",
+          repo: "workflow-hub"
+        }
+      }
+    ],
+    stack: {
+      provider: "Graphite",
+      currentBranch: "feat/age-349-local-api-boundary",
+      trunk: "main",
+      position: 1,
+      totalBranches: 1,
+      children: [],
+      branches: [
+        {
+          name: "feat/age-349-local-api-boundary",
+          current: true,
+          trunk: false,
+          position: 1,
+          prNumber: 12,
+          graphiteUrl: "https://app.graphite.com/github/pr/DylanMcCavitt/workflow-hub/12",
+          submitState: "Submitted"
+        }
+      ],
+      submitted: true,
+      submitState: "Submitted",
+      mergeState: "Open / Clean",
+      deepLink: "https://app.graphite.com/github/pr/DylanMcCavitt/workflow-hub/12"
+    },
+    deepLink: "https://app.graphite.com/github/pr/DylanMcCavitt/workflow-hub/12",
+    adapter: {
+      id: "pr:graphite",
+      label: "Graphite stack",
+      status: "available",
+      detail: "Graphite stack detected for feat/age-349-local-api-boundary: position 1/1; Submitted; Open / Clean; no parent PR. no child PRs.",
+      recoverable: false
+    }
+  };
+}
+
 async function syncFixtureIssue({ project, repository, clock, staleAfterMs }) {
   const fetchedAt = clock().toISOString();
 
@@ -208,6 +259,7 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
     syncLinearProjectIssues: syncFixtureIssue,
     readSymphonyState: symphonyFixtureState,
     readGitHubPullRequestState: githubFixtureState,
+    readGraphiteStackState: graphiteFixtureState,
     clock: () => new Date("2026-04-30T12:00:00.000Z"),
     findWorkspace: () => ({
       project: registry.projects[0],
@@ -244,9 +296,12 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
   assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "unavailable");
   assert.equal(state.pullRequests[0].status, "available");
   assert.equal(state.pullRequests[0].pullRequest.number, 12);
+  assert.equal(state.pullRequests[1].provider, "Graphite");
+  assert.equal(state.pullRequests[1].stack.position, 1);
   assert.equal(state.adapters.some((adapter) => adapter.id === "project-config" && adapter.status === "available"), true);
   assert.equal(state.adapters.some((adapter) => adapter.id === "linear" && adapter.status === "available"), true);
   assert.equal(state.adapters.some((adapter) => adapter.id === "pr:github" && adapter.status === "available"), true);
+  assert.equal(state.adapters.some((adapter) => adapter.id === "pr:graphite" && adapter.status === "available"), true);
 });
 
 test("applies explicit Linear actions and records write events", async (t) => {

@@ -267,6 +267,10 @@ function initialSelectedIssueId() {
     : issues[0].id;
 }
 
+function hasStaticIssue(issueId: string) {
+  return issues.some((issue) => issue.id === issueId);
+}
+
 function issueCardFromState(issueId: string, issueState: WorkflowIssueState | undefined): IssueCard {
   const linearIssue = issueState?.issue.linear;
   const workspace = issueState?.workspace;
@@ -684,21 +688,33 @@ export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
+  const [dynamicIssueIds, setDynamicIssueIds] = useState<string[]>(() => {
+    const initialIssueId = initialSelectedIssueId();
+    return hasStaticIssue(initialIssueId) ? [] : [initialIssueId];
+  });
+  const [dynamicIssueCards, setDynamicIssueCards] = useState<Record<string, IssueCard>>({});
   const [pendingActionId, setPendingActionId] = useState<string>();
   const [workpadNote, setWorkpadNote] = useState("");
   const [riskAccepted, setRiskAccepted] = useState(false);
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
+  const selectedIssueState = issueState?.issue.issueId === selectedIssueId ? issueState : undefined;
   const selected = useMemo(
-    () => issues.find((issue) => issue.id === selectedIssueId) ?? issueCardFromState(selectedIssueId, issueState),
-    [issueState, selectedIssueId]
+    () => issues.find((issue) => issue.id === selectedIssueId)
+      ?? (selectedIssueState
+        ? issueCardFromState(selectedIssueId, selectedIssueState)
+        : dynamicIssueCards[selectedIssueId] ?? issueCardFromState(selectedIssueId, undefined)),
+    [dynamicIssueCards, selectedIssueId, selectedIssueState]
   );
-  const linearIssue = issueState?.issue.linear;
+  const linearIssue = selectedIssueState?.issue.linear;
   const sidebarIssues = useMemo(
     () => {
-      const listedIssues = issues.some((issue) => issue.id === selected.id)
-        ? issues
-        : [selected, ...issues];
+      const dynamicIssues = dynamicIssueIds
+        .filter((issueId) => !hasStaticIssue(issueId))
+        .map((issueId) => issueId === selected.id
+          ? selected
+          : dynamicIssueCards[issueId] ?? issueCardFromState(issueId, undefined));
+      const listedIssues = [...dynamicIssues, ...issues];
 
       return listedIssues.map((issue) => {
         if (issue.id !== selected.id || !linearIssue) return issue;
@@ -711,7 +727,7 @@ export function App() {
         };
       });
     },
-    [linearIssue, selected]
+    [dynamicIssueCards, dynamicIssueIds, linearIssue, selected]
   );
 
   const refreshIssueState = useCallback(async () => {
@@ -724,23 +740,48 @@ export function App() {
     }
 
     try {
-      const state = await window.workflowHub.issues.getState(selected.id);
+      const state = await window.workflowHub.issues.getState(selectedIssueId);
       setIssueState(state);
       setApiError(undefined);
     } catch (error: unknown) {
       setApiError(error instanceof Error ? error.message : String(error));
     }
-  }, [selected.id]);
+  }, [selectedIssueId]);
 
   useEffect(() => {
     void refreshIssueState();
   }, [refreshIssueState]);
 
-  const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
-  const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
+  useEffect(() => {
+    if (hasStaticIssue(selectedIssueId) || !selectedIssueState) return;
+    setDynamicIssueCards((current) => ({
+      ...current,
+      [selectedIssueId]: issueCardFromState(selectedIssueId, selectedIssueState)
+    }));
+  }, [selectedIssueId, selectedIssueState]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("issue") === selectedIssueId) return;
+    url.searchParams.set("issue", selectedIssueId);
+    window.history.replaceState(null, "", url.toString());
+  }, [selectedIssueId]);
+
+  const handleSelectIssue = useCallback((issueId: string) => {
+    const normalizedIssueId = issueId.toUpperCase();
+    if (!hasStaticIssue(normalizedIssueId)) {
+      setDynamicIssueIds((current) => current.includes(normalizedIssueId)
+        ? current
+        : [normalizedIssueId, ...current]);
+    }
+    setSelectedIssueId(normalizedIssueId);
+  }, []);
+
+  const workspacePath = selectedIssueState?.workspace.found ? selectedIssueState.workspace.path : selected.worktree;
+  const branch = selectedIssueState?.workspace.found ? selectedIssueState.workspace.branch : selected.branch;
   const displayTitle = linearIssue?.title ?? selected.title;
   const displayStatus = linearIssue?.status ?? selected.status;
-  const displayProject = issueState?.project.displayName ?? selected.repo;
+  const displayProject = selectedIssueState?.project.displayName ?? selected.repo;
   const doneCount = useMemo(
     () => acceptanceCriteria.filter((criterion) => criterion.status === "Done").length,
     []
@@ -749,21 +790,21 @@ export function App() {
     ? `${window.workflowHub.platform} / ${window.workflowHub.version}`
     : "browser preview";
   const sourceSignals = useMemo(
-    () => issueState ? issueState.adapters.map(signalFromAdapter) : systemSignals,
-    [issueState]
+    () => selectedIssueState ? selectedIssueState.adapters.map(signalFromAdapter) : systemSignals,
+    [selectedIssueState]
   );
   const visibleRunners = useMemo(
-    () => issueState ? issueState.runners.map(runnerFromApiState) : runnerBackends,
-    [issueState]
+    () => selectedIssueState ? selectedIssueState.runners.map(runnerFromApiState) : runnerBackends,
+    [selectedIssueState]
   );
-  const pullRequestState = issueState?.pullRequests[0];
-  const reviewState = issueState?.reviews[0];
+  const pullRequestState = selectedIssueState?.pullRequests[0];
+  const reviewState = selectedIssueState?.reviews[0];
   const linearPullRequest = linearIssue?.pullRequests[0];
-  const linearActions = issueState?.linearStatusActions ?? fallbackLinearActions;
+  const linearActions = selectedIssueState?.linearStatusActions ?? fallbackLinearActions;
   const pendingAction = linearActions.find((action) => action.id === pendingActionId);
   const localTimeline = useMemo(
-    () => issueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
-    [issueState]
+    () => selectedIssueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
+    [selectedIssueState]
   );
   const visibleTimeline = localTimeline.length > 0 ? [...localTimeline, ...timeline] : timeline;
 
@@ -844,7 +885,7 @@ export function App() {
               key={issue.id}
               issue={issue}
               active={issue.id === selected.id}
-              onSelect={setSelectedIssueId}
+              onSelect={handleSelectIssue}
             />
           ))}
         </section>
@@ -874,7 +915,7 @@ export function App() {
         </section>
 
         <section className="workspace-content">
-          <ResolutionPanel selectedIssue={selected} issueState={issueState} apiError={apiError} />
+          <ResolutionPanel selectedIssue={selected} issueState={selectedIssueState} apiError={apiError} />
 
           <LinearActionBoard
             actions={linearActions}
@@ -967,7 +1008,7 @@ export function App() {
           <dl>
             <div>
               <dt>Status</dt>
-              <dd>{linearIssue?.status ?? labelForStatus(issueState?.issue.status ?? "loading")}</dd>
+              <dd>{linearIssue?.status ?? labelForStatus(selectedIssueState?.issue.status ?? "loading")}</dd>
             </div>
             <div>
               <dt>Priority</dt>
@@ -991,7 +1032,7 @@ export function App() {
             </div>
             <div>
               <dt>Cache</dt>
-              <dd>{cacheText(issueState)}</dd>
+              <dd>{cacheText(selectedIssueState)}</dd>
             </div>
           </dl>
         </section>

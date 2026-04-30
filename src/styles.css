@@ -25,7 +25,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 72px 320px minmax(520px, 1fr) 360px;
+  grid-template-columns: 64px 300px minmax(470px, 1fr) 330px;
   min-height: 100vh;
   background: #0e0f0d;
 }
@@ -122,6 +122,7 @@ h1 {
   gap: 12px;
   font-size: 24px;
   letter-spacing: 0;
+  line-height: 1.15;
 }
 
 .workspace-header h2 span {
@@ -198,6 +199,12 @@ h1 {
   line-height: 1.3;
 }
 
+.issue-summary {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .issue-meta {
   justify-content: flex-start;
   color: #a7ab9c;
@@ -212,7 +219,8 @@ h1 {
 }
 
 .action-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   padding: 14px 20px;
   border-bottom: 1px solid #2a2b24;
@@ -222,9 +230,10 @@ h1 {
 .action-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 8px;
   border: 1px solid #35382d;
   border-radius: 8px;
   color: #d9d4c8;
@@ -238,19 +247,145 @@ h1 {
   background: #9ec27f;
 }
 
+.header-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a7ab9c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.workspace-content {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  min-width: 0;
+  padding: 22px 24px;
+  overflow: auto;
+}
+
+.section-heading {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.section-heading h2,
+.resolution-panel h3 {
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.resolution-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: 18px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #2a2b24;
+}
+
+.resolution-list {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.4fr) minmax(150px, 0.8fr) minmax(90px, 0.5fr);
+  gap: 14px;
+}
+
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-step {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 10px;
+  min-height: 122px;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #151712;
+}
+
+.flow-step .criterion-pill {
+  grid-column: 2;
+  align-self: end;
+  justify-self: start;
+}
+
+.flow-index {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #3a3c31;
+  border-radius: 8px;
+  color: #9ec27f;
+  font-size: 12px;
+  font-weight: 800;
+  background: #202719;
+}
+
+.flow-step h3,
+.acceptance-row h3 {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.flow-step p,
+.acceptance-row p,
+.signal-row p,
+.runner-row p {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.acceptance-board {
+  padding-top: 2px;
+}
+
+.acceptance-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.acceptance-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 112px;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #151712;
+}
+
+.acceptance-row .criterion-pill {
+  flex: 0 0 auto;
+}
+
+.acceptance-owner {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #72a7ff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .conversation {
   display: grid;
   align-content: start;
   gap: 12px;
-  padding: 22px 24px;
-  overflow: auto;
+  padding: 0 0 4px;
 }
 
 .timeline-event {
   display: grid;
   grid-template-columns: 32px 1fr;
   gap: 12px;
-  max-width: 760px;
   padding: 14px;
   border: 1px solid #2f3128;
   border-radius: 8px;
@@ -281,6 +416,11 @@ h1 {
 .timeline-event.warning .event-icon {
   color: #f2b66d;
   background: #2a2114;
+}
+
+.timeline-event.danger .event-icon {
+  color: #ff9f8f;
+  background: #2c1714;
 }
 
 .command-bar {
@@ -355,9 +495,21 @@ dd {
   font-size: 13px;
 }
 
+.runner-row {
+  align-items: flex-start;
+  min-height: 48px;
+  padding: 8px 0;
+  border-bottom: 1px solid #24261f;
+}
+
+.runner-row:last-child {
+  border-bottom: 0;
+}
+
 .runner-row strong {
   color: #72a7ff;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .review-line {
@@ -375,6 +527,11 @@ dd {
   font-weight: 700;
   color: #d9d4c8;
   background: #25271f;
+}
+
+.status-pill.backlog {
+  color: #a7ab9c;
+  background: #20211d;
 }
 
 .status-pill.human-review {
@@ -397,4 +554,66 @@ dd {
 .status-pill.blocked {
   color: #ff9f8f;
   background: #2c1714;
+}
+
+.criterion-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: #d9d4c8;
+  background: #25271f;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.criterion-pill.done {
+  color: #9ec27f;
+  background: #202719;
+}
+
+.criterion-pill.in-progress {
+  color: #72a7ff;
+  background: #172334;
+}
+
+.criterion-pill.planned {
+  color: #b9baad;
+  background: #25271f;
+}
+
+.criterion-pill.blocked {
+  color: #ff9f8f;
+  background: #2c1714;
+}
+
+.signal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.signal-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #24261f;
+}
+
+.signal-row:last-child {
+  border-bottom: 0;
+}
+
+.signal-row span {
+  color: #f5f0e6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signal-row strong {
+  justify-self: start;
+  color: #72a7ff;
+  font-size: 12px;
 }

@@ -24,7 +24,7 @@ This track is the current scaffold for the full end-to-end build. It is intentio
 
 URL: <https://linear.app/agentcee/issue/AGE-346/workflow-hub-track-build-local-agent-workflow-cockpit>
 
-Status: Backlog
+Status: In Progress
 
 Priority: High
 
@@ -58,7 +58,7 @@ Constraints:
 
 URL: <https://linear.app/agentcee/issue/AGE-347/foundation-local-project-registry-and-config-model>
 
-Status: Ready
+Status: Done
 
 Priority: High
 
@@ -68,7 +68,7 @@ Purpose: Define the local project registry that maps repos, Linear projects, wor
 
 URL: <https://linear.app/agentcee/issue/AGE-348/foundation-sqlite-registry-and-event-store>
 
-Status: Backlog
+Status: Done
 
 Priority: High
 
@@ -363,4 +363,4 @@ Purpose: Document daily operation, project config, issue startup, review, merge,
 
 ## Starting Point
 
-Start with `AGE-347` because it is the first Ready issue and it unblocks the local registry, worktree resolver, storage, daemon boundary, and downstream review flows.
+`AGE-347` and `AGE-348` are complete. Continue with `AGE-349` because the local daemon and renderer API boundary unblocks adapter-backed UI actions, Linear sync, Symphony state, PR review sync, and runner launches.

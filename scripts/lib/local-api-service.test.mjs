@@ -37,6 +37,52 @@ function memoryRepository() {
   });
 }
 
+async function symphonyFixtureState({ issueId, issue, workspace }) {
+  return {
+    status: "available",
+    running: true,
+    source: "endpoint",
+    endpoint: "http://127.0.0.1:4002/api/v1/state",
+    generatedAt: "2026-04-30T12:00:00.000Z",
+    detail: `${issueId} active in Symphony fixture.`,
+    counts: {
+      queue: 0,
+      active: 1,
+      complete: 0,
+      blocked: 0,
+      failed: 0,
+      unknown: 0
+    },
+    issues: [
+      {
+        identifier: issueId,
+        issueId: issue?.linear?.linearId,
+        linearStatus: issue?.linear?.status,
+        normalizedState: "active",
+        source: "endpoint",
+        reason: "Symphony fixture reports this issue active.",
+        workspacePath: workspace?.path
+      }
+    ],
+    selectedIssue: {
+      identifier: issueId,
+      issueId: issue?.linear?.linearId,
+      linearStatus: issue?.linear?.status,
+      normalizedState: "active",
+      source: "endpoint",
+      reason: "Symphony fixture reports this issue active.",
+      workspacePath: workspace?.path
+    },
+    adapter: {
+      id: "runner:symphony",
+      label: "Symphony runner",
+      status: "available",
+      detail: `${issueId} active in Symphony fixture.`,
+      recoverable: false
+    }
+  };
+}
+
 async function syncFixtureIssue({ project, repository, clock, staleAfterMs }) {
   const fetchedAt = clock().toISOString();
 
@@ -105,6 +151,7 @@ test("returns a typed issue state with resolved workspace, Linear cache, and una
     readProjectConfig: () => registry,
     registryRepository: repository,
     syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
     clock: () => new Date("2026-04-30T12:00:00.000Z"),
     findWorkspace: () => ({
       project: registry.projects[0],
@@ -136,6 +183,8 @@ test("returns a typed issue state with resolved workspace, Linear cache, and una
   assert.equal(state.workspace.status, "available");
   assert.equal(state.workspace.branch, "feat/age-349-local-api-boundary");
   assert.equal(state.workspace.dirty, true);
+  assert.equal(state.symphony.selectedIssue.normalizedState, "active");
+  assert.equal(state.runners.find((runner) => runner.kind === "Symphony").status, "available");
   assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "unavailable");
   assert.equal(state.pullRequests[0].status, "unavailable");
   assert.equal(state.adapters.some((adapter) => adapter.id === "project-config" && adapter.status === "available"), true);
@@ -155,6 +204,7 @@ test("applies explicit Linear actions and records write events", async (t) => {
       detail: "Cache refresh skipped by test.",
       issueCount: 1
     }),
+    readSymphonyState: symphonyFixtureState,
     applyLinearStatusAction: async ({ issueId, actionId, confirmed, note }) => {
       assert.equal(issueId, "AGE-355");
       assert.equal(actionId, "blocked");
@@ -209,7 +259,8 @@ test("returns recoverable unavailable state when project config cannot load", as
   const service = createLocalApiService({
     readProjectConfig: () => {
       throw new Error("bad config");
-    }
+    },
+    readSymphonyState: symphonyFixtureState
   });
 
   const state = await service.getIssueState("AGE-349");
@@ -229,6 +280,7 @@ test("reports missing workspace without throwing", async (t) => {
     readProjectConfig: () => registry,
     registryRepository: repository,
     syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
     clock: () => new Date("2026-04-30T12:00:00.000Z"),
     findWorkspace: () => undefined
   });

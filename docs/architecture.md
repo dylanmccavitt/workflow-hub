@@ -18,7 +18,9 @@ The current scaffold includes the UI shell, a local CLI stub, and project docs. 
 - `electron/preload.cjs`: Exposes a minimal safe bridge to the renderer.
 - `src/App.tsx`: Codex-style dashboard scaffold using static data.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
-- `config/projects.example.json`: Example project registry for local issue workspace discovery.
+- `config/projects.example.json`: Tracked example project registry.
+- `config/projects.schema.json`: Project config schema for canonical checkouts, issue worktree roots, Linear hints, and optional iOS review settings.
+- `config/projects.json`: Ignored local override file for machine-specific project paths.
 
 ## Boundaries
 
@@ -58,4 +60,5 @@ The current scaffold includes the UI shell, a local CLI stub, and project docs. 
 - A runner may only mutate the worktree assigned to its issue.
 - Review actions must target the issue worktree, not the canonical checkout.
 - The GUI cache must be rebuildable from Linear, git, PRs, and local runner logs.
+- Local project config resolves paths and launch metadata only; it is not a source of truth for issue, branch, PR, or review state.
 - Destructive actions require explicit user confirmation.

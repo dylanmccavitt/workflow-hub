@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workflow-hub.local/schemas/projects.schema.json",
+  "title": "Workflow Hub project registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projects"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/project"
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "repo", "worktrees"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "linear": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "teamKey": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "projectId": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "projectSlug": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          }
+        },
+        "repo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["canonicalPath"],
+          "properties": {
+            "canonicalPath": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "canonicalBranch": {
+              "$ref": "#/$defs/nonEmptyString",
+              "default": "main"
+            }
+          }
+        },
+        "worktrees": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["roots"],
+          "properties": {
+            "roots": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            },
+            "issuePathTemplate": {
+              "$ref": "#/$defs/nonEmptyString",
+              "default": "{issueId}"
+            },
+            "branchTemplate": {
+              "$ref": "#/$defs/nonEmptyString",
+              "default": "feat/{issueIdLower}-{slug}"
+            }
+          }
+        },
+        "ios": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scheme", "bundleId"],
+          "properties": {
+            "projectPath": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "workspacePath": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "scheme": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "bundleId": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "simulatorName": {
+              "$ref": "#/$defs/nonEmptyString",
+              "default": "iPhone 17 Pro"
+            },
+            "derivedDataRoot": {
+              "$ref": "#/$defs/nonEmptyString",
+              "default": "/tmp"
+            }
+          },
+          "anyOf": [
+            {
+              "required": ["projectPath"]
+            },
+            {
+              "required": ["workspacePath"]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

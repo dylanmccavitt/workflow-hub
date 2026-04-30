@@ -36,10 +36,11 @@ npm run dev
 ## CLI
 
 ```bash
+npm run workflow -- config
 npm run workflow -- status AGE-310
 npm run workflow -- open AGE-310 --zed
 npm run workflow -- open AGE-310 --xcode
 npm run workflow -- review AGE-310 --sim
 ```
 
-Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths.
+Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths. See [`docs/configuration.md`](docs/configuration.md) for the schema and how canonical checkouts differ from issue worktrees.

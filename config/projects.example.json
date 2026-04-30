@@ -1,28 +1,51 @@
 {
+  "schemaVersion": 1,
   "projects": [
     {
       "id": "chores",
       "displayName": "ChoreLadder / Still Haven't",
-      "canonicalPath": "/Users/dylanmccavitt/projects/chores",
-      "workspaceRoots": [
-        "/Users/dylanmccavitt/.codex/symphony-workspaces/chores",
-        "/Users/dylanmccavitt/.codex/worktrees"
-      ],
-      "xcode": {
-        "project": "ChoreLadder.xcodeproj",
+      "linear": {
+        "teamKey": "AGE"
+      },
+      "repo": {
+        "canonicalPath": "~/projects/chores",
+        "canonicalBranch": "main"
+      },
+      "worktrees": {
+        "roots": [
+          "~/.codex/symphony-workspaces/chores",
+          "~/.codex/worktrees"
+        ],
+        "issuePathTemplate": "{issueId}",
+        "branchTemplate": "feat/{issueIdLower}-{slug}"
+      },
+      "ios": {
+        "projectPath": "ChoreLadder.xcodeproj",
         "scheme": "ChoreLadder",
         "bundleId": "com.dylanmccavitt.choreladder",
-        "simulatorName": "iPhone 17 Pro"
+        "simulatorName": "iPhone 17 Pro",
+        "derivedDataRoot": "/tmp"
       }
     },
     {
       "id": "workflow-hub",
       "displayName": "Workflow Hub",
-      "canonicalPath": "/Users/dylanmccavitt/projects/workflow-hub",
-      "workspaceRoots": [
-        "/Users/dylanmccavitt/.codex/symphony-workspaces/workflow-hub",
-        "/Users/dylanmccavitt/.codex/worktrees"
-      ]
+      "linear": {
+        "teamKey": "AGE",
+        "projectSlug": "workflow-hub"
+      },
+      "repo": {
+        "canonicalPath": "~/projects/workflow-hub",
+        "canonicalBranch": "main"
+      },
+      "worktrees": {
+        "roots": [
+          "~/.codex/symphony-workspaces/workflow-hub",
+          "~/.codex/worktrees"
+        ],
+        "issuePathTemplate": "{issueId}",
+        "branchTemplate": "feat/{issueIdLower}-{slug}"
+      }
     }
   ]
 }

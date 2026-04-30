@@ -27,7 +27,7 @@ const statuses: IssueStatus[] = [
 const selected = issues[0];
 
 function StatusPill({ status }: { status: IssueStatus }) {
-  return <span className={`status-pill ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span>;
+  return <span className={`status-pill ${status.toLowerCase().split(" ").join("-")}`}>{status}</span>;
 }
 
 function IssueRow({ issue, active = false }: { issue: IssueCard; active?: boolean }) {

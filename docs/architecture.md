@@ -10,13 +10,13 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, and a Node-side SQLite registry module. Adapter work is not implemented yet.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, and a read-only Electron bridge for resolving the selected issue workspace. Adapter work is not implemented yet.
 
 ## Major Components
 
-- `electron/main.cjs`: Creates the desktop window and controls external-link handling.
-- `electron/preload.cjs`: Exposes a minimal safe bridge to the renderer.
-- `src/App.tsx`: Codex-style dashboard scaffold using static data.
+- `electron/main.cjs`: Creates the desktop window, controls external-link handling, and exposes read-only IPC for issue workspace resolution.
+- `electron/preload.cjs`: Exposes a minimal safe bridge to the renderer without broad filesystem or shell access.
+- `src/App.tsx`: Codex-style track cockpit using static track data plus the desktop issue-workspace resolver for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -36,7 +36,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, and 
 ### Issue Review
 
 1. User selects a Linear issue.
-2. Hub resolves the issue worktree.
+2. Hub resolves the issue worktree through the local project config and read-only Electron bridge.
 3. Hub shows branch, PR, runner, and Symphony state.
 4. User launches simulator/device review from the issue worktree.
 5. User marks `Needs Fixes` or proceeds to merge through explicit actions.

@@ -6,6 +6,7 @@
 - Start the Electron app with `npm run dev`.
 - Run the renderer only with `npm run dev:renderer`.
 - Use the local workflow CLI with `npm run workflow -- <command>`.
+- Start the local Symphony runner with `scripts/symphony/start` after exporting `LINEAR_API_KEY`.
 
 ## Checks
 

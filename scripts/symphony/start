@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SYMPHONY_DIR="${SYMPHONY_DIR:-/Users/dylanmccavitt/projects/symphony/elixir}"
+WORKFLOW_FILE="${WORKFLOW_HUB_WORKFLOW_FILE:-/Users/dylanmccavitt/projects/workflow-hub/WORKFLOW.md}"
+LOGS_ROOT="${SYMPHONY_LOGS_ROOT:-/Users/dylanmccavitt/.codex/symphony-logs/workflow-hub}"
+PORT="${SYMPHONY_PORT:-4002}"
+
+if [[ -z "${LINEAR_API_KEY:-}" ]]; then
+  echo "LINEAR_API_KEY is required before starting Symphony." >&2
+  exit 1
+fi
+
+if [[ ! -d "$SYMPHONY_DIR" ]]; then
+  echo "Symphony directory not found: $SYMPHONY_DIR" >&2
+  exit 1
+fi
+
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+  echo "Workflow file not found: $WORKFLOW_FILE" >&2
+  exit 1
+fi
+
+mkdir -p "$LOGS_ROOT"
+
+cd "$SYMPHONY_DIR"
+exec mise exec -- ./bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --logs-root "$LOGS_ROOT" \
+  --port "$PORT" \
+  "$WORKFLOW_FILE"

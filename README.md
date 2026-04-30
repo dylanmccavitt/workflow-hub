@@ -14,6 +14,17 @@ Parent track: [`AGE-346`](https://linear.app/agentcee/issue/AGE-346/workflow-hub
 
 First implementation issue: [`AGE-347`](https://linear.app/agentcee/issue/AGE-347/foundation-local-project-registry-and-config-model)
 
+## Symphony
+
+Start the local Symphony runner with:
+
+```sh
+export LINEAR_API_KEY=...
+scripts/symphony/start
+```
+
+The runner uses the root [`WORKFLOW.md`](WORKFLOW.md) and includes Symphony's required no-guardrails acknowledgement flag in the start script. See [`docs/SYMPHONY.md`](docs/SYMPHONY.md) for routing, workspace, and current local-remote caveats.
+
 ## Run
 
 After dependencies are installed:

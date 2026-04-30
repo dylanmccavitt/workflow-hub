@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, a read-only GitHub PR/check/review adapter, and a main-process local API service for resolving selected issue state through typed IPC. Codex, Cursor SDK, and review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, read-only GitHub PR/check/review and Graphite stack adapters, and a main-process local API service for resolving selected issue state through typed IPC. Codex, Cursor SDK, and review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
@@ -21,8 +21,9 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `scripts/lib/linear-writes.mjs`: Explicit Linear status action adapter. It maps allowed workflow states, enforces confirmation for dispatching or externally visible states, updates the persistent `## Codex Workpad` comment by merging structured sections, and leaves passive sync read-only.
 - `scripts/lib/symphony-state.mjs`: Passive Symphony observability adapter. It reads the documented local JSON state endpoint, falls back to documented log files when the endpoint is unavailable, and normalizes queue, active, complete, blocked, failed, and unknown state without starting workers or mutating Linear.
 - `scripts/lib/github-pr-state.mjs`: Read-only GitHub adapter. It resolves PR candidates from Linear PR attachments, Linear branch names, and issue-worktree git branches, then reads PR status, merge/review state, check rollups, failing check annotations, latest review comments, and GitHub links through `gh`.
+- `scripts/lib/graphite-stack-state.mjs`: Read-only Graphite adapter. It detects the installed `gt` CLI and local Graphite initialization before running stack commands, resolves stack candidates from GitHub/Linear/workspace branch metadata, reads stack order through `gt log --stack`, direct parent/children through `gt parent`/`gt children`, and falls back to Graphite deep links when stack metadata is unavailable.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
-- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, PR/check/review state, and local event timeline for the selected issue.
+- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, GitHub PR/check/review state, Graphite stack state, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -46,9 +47,10 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 2. Hub asks the main-process local API for project, issue, workspace, runner, review, and PR state.
 3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, reads passive Symphony observability state, and marks missing adapters as recoverable unavailable state.
 4. The local API resolves linked GitHub PRs from Linear and git metadata, then reads status, review decision, checks, failing annotations, comments, and links without mutating GitHub.
-5. Hub shows branch, PR, runner, and normalized Symphony state.
-6. User launches simulator/device review from the issue worktree.
-7. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
+5. The local API resolves Graphite stack candidates from GitHub/Linear/workspace branch metadata, reads local `gt` stack order only when Graphite is initialized, and returns a Graphite deep link when stack data is unavailable.
+6. Hub shows branch, PR, Graphite stack, runner, and normalized Symphony state.
+7. User launches simulator/device review from the issue worktree.
+8. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
 
 ### Linear Writes
 
@@ -84,4 +86,5 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - Destructive actions require explicit user confirmation.
 - Passive Linear sync must never mutate issue state or comments.
 - GitHub PR sync must remain read-only; comments, reviews, checks, and merge state are displayed from GitHub as source of truth.
+- Graphite stack sync must remain read-only; Workflow Hub may display local stack order, parent/child branches, submit/merge state, and Graphite links, but it must not replace Graphite's review UI.
 - Linear comments alone are context; dispatch-capable routing must come from explicit status actions or a configured external trigger.

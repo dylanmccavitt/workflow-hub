@@ -202,13 +202,25 @@ export interface ReviewApiState {
   adapter: AdapterState;
 }
 
-export interface PullRequestApiState {
+export type PullRequestApiState = GitHubPullRequestApiState | GraphiteStackApiState;
+
+export interface GitHubPullRequestApiState {
   provider: "GitHub";
   status: EntityStatus;
   detail: string;
   adapter: AdapterState;
   candidates?: PullRequestCandidate[];
   pullRequest?: GitHubPullRequestDetails;
+}
+
+export interface GraphiteStackApiState {
+  provider: "Graphite";
+  status: EntityStatus;
+  detail: string;
+  adapter: AdapterState;
+  candidates?: PullRequestCandidate[];
+  stack?: GraphiteStackDetails;
+  deepLink?: string;
 }
 
 export interface PullRequestCandidate {
@@ -293,6 +305,33 @@ export interface GitHubReviewComment {
   url?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface GraphiteStackDetails {
+  provider: "Graphite";
+  currentBranch: string;
+  trunk?: string;
+  position?: number;
+  totalBranches: number;
+  parent?: GraphiteStackBranch;
+  children: GraphiteStackBranch[];
+  branches: GraphiteStackBranch[];
+  submitted: boolean;
+  submitState: string;
+  mergeState?: string;
+  deepLink: string;
+}
+
+export interface GraphiteStackBranch {
+  name: string;
+  current: boolean;
+  trunk: boolean;
+  position?: number;
+  prNumber?: number;
+  githubUrl?: string;
+  graphiteUrl?: string;
+  submitState?: string;
+  mergeState?: string;
 }
 
 export interface WorkflowIssueState {

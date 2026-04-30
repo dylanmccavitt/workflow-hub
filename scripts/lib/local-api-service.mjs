@@ -24,6 +24,9 @@ import {
 import {
   readGitHubPullRequestState as defaultReadGitHubPullRequestState
 } from "./github-pr-state.mjs";
+import {
+  readGraphiteStackState as defaultReadGraphiteStackState
+} from "./graphite-stack-state.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -56,6 +59,7 @@ export function createLocalApiService(options = {}) {
   const applyLinearStatusAction = options.applyLinearStatusAction ?? defaultApplyLinearStatusAction;
   const readSymphonyState = options.readSymphonyState ?? defaultReadSymphonyState;
   const readGitHubPullRequestState = options.readGitHubPullRequestState ?? defaultReadGitHubPullRequestState;
+  const readGraphiteStackState = options.readGraphiteStackState ?? defaultReadGraphiteStackState;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -100,7 +104,13 @@ export function createLocalApiService(options = {}) {
 
         const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
         const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
-        const pullRequestState = readGitHubPullRequestState({ issue, workspace, clock });
+        const pullRequestStates = readPullRequestProviderStates({
+          issue,
+          workspace,
+          clock,
+          readGitHubPullRequestState,
+          readGraphiteStackState
+        });
 
         return buildIssueResponse({
           issue,
@@ -114,7 +124,7 @@ export function createLocalApiService(options = {}) {
           projectConfigAdapter,
           workspaceAdapter,
           symphonyState,
-          pullRequestState
+          pullRequestStates
         });
       }
 
@@ -143,7 +153,13 @@ export function createLocalApiService(options = {}) {
 
         const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
         const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
-        const pullRequestState = readGitHubPullRequestState({ issue, workspace, clock });
+        const pullRequestStates = readPullRequestProviderStates({
+          issue,
+          workspace,
+          clock,
+          readGitHubPullRequestState,
+          readGraphiteStackState
+        });
 
         return buildIssueResponse({
           issue,
@@ -157,7 +173,7 @@ export function createLocalApiService(options = {}) {
           projectConfigAdapter,
           workspaceAdapter,
           symphonyState,
-          pullRequestState
+          pullRequestStates
         });
       }
 
@@ -178,10 +194,12 @@ export function createLocalApiService(options = {}) {
         workspace: workspaceState.workspace,
         clock
       });
-      const pullRequestState = readGitHubPullRequestState({
+      const pullRequestStates = readPullRequestProviderStates({
         issue,
         workspace: workspaceState.workspace,
-        clock
+        clock,
+        readGitHubPullRequestState,
+        readGraphiteStackState
       });
 
       return buildIssueResponse({
@@ -192,7 +210,7 @@ export function createLocalApiService(options = {}) {
         projectConfigAdapter,
         workspaceAdapter: workspaceState.adapter,
         symphonyState,
-        pullRequestState
+        pullRequestStates
       });
     },
 
@@ -281,11 +299,11 @@ function buildIssueResponse({
   projectConfigAdapter,
   workspaceAdapter,
   symphonyState,
-  pullRequestState
+  pullRequestStates
 }) {
   const runnerStates = buildRunnerStates(symphonyState);
   const reviewStates = buildReviewStates(project);
-  const pullRequestStates = buildPullRequestStates(pullRequestState);
+  const normalizedPullRequestStates = buildPullRequestStates(pullRequestStates);
 
   return {
     apiVersion: LOCAL_API_VERSION,
@@ -296,7 +314,7 @@ function buildIssueResponse({
     linearStatusActions: LINEAR_STATUS_ACTIONS,
     runners: runnerStates,
     reviews: reviewStates,
-    pullRequests: pullRequestStates,
+    pullRequests: normalizedPullRequestStates,
     adapters: [
       projectConfigAdapter,
       workspaceAdapter ?? workspace.adapter,
@@ -304,9 +322,27 @@ function buildIssueResponse({
       issue.adapter,
       ...runnerStates.map((runner) => runner.adapter),
       ...reviewStates.map((review) => review.adapter),
-      ...pullRequestStates.map((pullRequest) => pullRequest.adapter)
+      ...normalizedPullRequestStates.map((pullRequest) => pullRequest.adapter)
     ].filter(Boolean)
   };
+}
+
+function readPullRequestProviderStates({
+  issue,
+  workspace,
+  clock,
+  readGitHubPullRequestState,
+  readGraphiteStackState
+}) {
+  const githubPullRequestState = readGitHubPullRequestState({ issue, workspace, clock });
+  const graphiteStackState = readGraphiteStackState({
+    issue,
+    workspace,
+    githubPullRequestState,
+    clock
+  });
+
+  return [githubPullRequestState, graphiteStackState];
 }
 
 async function buildIssueState(issueId, project, options) {
@@ -565,9 +601,17 @@ function buildReviewStates(project) {
   ];
 }
 
-function buildPullRequestStates(pullRequestState) {
+function buildPullRequestStates(pullRequestStates) {
+  const states = Array.isArray(pullRequestStates)
+    ? pullRequestStates.filter(Boolean)
+    : pullRequestStates
+      ? [pullRequestStates]
+      : [];
+
+  if (states.length > 0) return states;
+
   return [
-    pullRequestState ?? {
+    {
       provider: "GitHub",
       status: "unavailable",
       detail: "GitHub PR and checks sync is not connected yet.",
@@ -576,6 +620,18 @@ function buildPullRequestStates(pullRequestState) {
         "GitHub PR",
         "GitHub PR adapter unavailable until AGE-358 wires PR state and checks.",
         "AGE-358"
+      )
+    },
+    {
+      provider: "Graphite",
+      status: "unavailable",
+      detail: "Graphite stack sync is not connected yet.",
+      deepLink: "https://app.graphite.com/",
+      adapter: unavailableAdapter(
+        "pr:graphite",
+        "Graphite stack",
+        "Graphite stack adapter unavailable until AGE-359 wires stack visibility.",
+        "AGE-359"
       )
     }
   ];

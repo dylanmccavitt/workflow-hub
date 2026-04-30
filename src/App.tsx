@@ -41,8 +41,11 @@ import type {
 import type {
   AdapterState,
   GitHubCheck,
+  GitHubPullRequestApiState,
   GitHubPullRequestDetails,
   GitHubReviewComment,
+  GraphiteStackApiState,
+  GraphiteStackBranch,
   LinearIssueDetails,
   LinearStatusAction,
   PullRequestApiState,
@@ -114,6 +117,14 @@ function pullRequestLabel(pullRequest: PullRequestApiState | undefined) {
   return `${pullRequest.provider}: ${labelForStatus(pullRequest.status)}`;
 }
 
+function gitHubPullRequestState(states: PullRequestApiState[] | undefined): GitHubPullRequestApiState | undefined {
+  return states?.find((state): state is GitHubPullRequestApiState => state.provider === "GitHub");
+}
+
+function graphiteStackState(states: PullRequestApiState[] | undefined): GraphiteStackApiState | undefined {
+  return states?.find((state): state is GraphiteStackApiState => state.provider === "Graphite");
+}
+
 function pullRequestTone(pullRequest: GitHubPullRequestDetails): Tone {
   if (pullRequest.checks.status === "failing" || pullRequest.reviewDecision === "CHANGES_REQUESTED") {
     return "danger";
@@ -143,6 +154,21 @@ function reviewCommentMeta(comment: GitHubReviewComment) {
 function reviewLabel(review: ReviewApiState | undefined) {
   if (!review) return undefined;
   return `${labelForStatus(review.target)} review: ${labelForStatus(review.status)}`;
+}
+
+function branchDisplay(branch: GraphiteStackBranch | undefined) {
+  if (!branch) return "None";
+  const position = branch.position ? ` (${branch.position})` : "";
+  return `${branch.name}${position}`;
+}
+
+function branchListDisplay(branches: GraphiteStackBranch[]) {
+  return branches.length > 0 ? branches.map(branchDisplay).join(", ") : "None";
+}
+
+function stackPositionText(stack: GraphiteStackApiState["stack"]) {
+  if (!stack?.position || !stack.totalBranches) return "Unknown";
+  return `${stack.position}/${stack.totalBranches}`;
 }
 
 function issueReferenceText(issue: { identifier: string; title: string } | undefined) {
@@ -274,8 +300,8 @@ function hasStaticIssue(issueId: string) {
 function issueCardFromState(issueId: string, issueState: WorkflowIssueState | undefined): IssueCard {
   const linearIssue = issueState?.issue.linear;
   const workspace = issueState?.workspace;
-  const pullRequest = issueState?.pullRequests[0];
-  const summary = pullRequest?.detail
+  const pullRequestState = gitHubPullRequestState(issueState?.pullRequests);
+  const summary = pullRequestState?.detail
     ?? workspace?.adapter.detail
     ?? issueState?.issue.adapter.detail
     ?? "Dynamic issue loaded from the local workflow API.";
@@ -288,15 +314,34 @@ function issueCardFromState(issueId: string, issueState: WorkflowIssueState | un
     runner: "Codex",
     branch: workspace?.branch ?? "Resolving branch",
     worktree: workspace?.path ?? "Resolving issue workspace",
-    pr: pullRequest?.pullRequest
-      ? `#${pullRequest.pullRequest.number} ${pullRequest.pullRequest.title}`
+    pr: pullRequestState?.pullRequest
+      ? `#${pullRequestState.pullRequest.number} ${pullRequestState.pullRequest.title}`
       : undefined,
-    lastEvent: pullRequest?.detail ?? issueState?.issue.adapter.detail ?? "Loading local API state",
+    lastEvent: pullRequestState?.detail ?? issueState?.issue.adapter.detail ?? "Loading local API state",
     buildTarget: "None",
     risk: "medium",
     phase: "Workflow Visibility",
     summary
   };
+}
+
+function GraphiteBranchRow({ branch }: { branch: GraphiteStackBranch }) {
+  const label = branch.position ? `${branch.position}. ${branch.name}` : branch.name;
+  const state = branch.submitState ?? (branch.prNumber ? "Submitted" : "Local only");
+  const content = (
+    <>
+      <span>{label}</span>
+      <strong>{state}</strong>
+    </>
+  );
+
+  return branch.graphiteUrl ? (
+    <a className={`stack-branch-row ${branch.current ? "current" : ""}`} href={branch.graphiteUrl} rel="noreferrer" target="_blank">
+      {content}
+    </a>
+  ) : (
+    <div className={`stack-branch-row ${branch.current ? "current" : ""}`}>{content}</div>
+  );
 }
 
 function ActionButton({
@@ -594,7 +639,7 @@ function PullRequestPanel({
   pullRequestState,
   linearPullRequest
 }: {
-  pullRequestState: PullRequestApiState | undefined;
+  pullRequestState: GitHubPullRequestApiState | undefined;
   linearPullRequest: LinearIssueDetails["pullRequests"][number] | undefined;
 }) {
   const pullRequest = pullRequestState?.pullRequest;
@@ -679,6 +724,74 @@ function PullRequestPanel({
         ) : (
           <p>No review comments found.</p>
         )}
+      </div>
+    </section>
+  );
+}
+
+function GraphiteStackPanel({
+  stackState
+}: {
+  stackState: GraphiteStackApiState | undefined;
+}) {
+  const stack = stackState?.stack;
+  const deepLink = stack?.deepLink ?? stackState?.deepLink;
+
+  if (!stack) {
+    return (
+      <section className="inspector-section">
+        <h2>Graphite Stack</h2>
+        <div className="review-line">
+          <GitBranch size={16} />
+          {deepLink ? (
+            <a href={deepLink} rel="noreferrer" target="_blank">
+              {stackState?.detail ?? "Open Graphite"}
+            </a>
+          ) : (
+            <span>{stackState?.detail ?? "No Graphite stack data loaded"}</span>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const visibleBranches = stack.branches.filter((branch) => !branch.trunk);
+
+  return (
+    <section className="inspector-section pr-section">
+      <h2>Graphite Stack</h2>
+      <a className="pr-link" href={stack.deepLink} rel="noreferrer" target="_blank">
+        {stack.currentBranch}
+      </a>
+      <div className="pr-health">
+        <span>Position {stackPositionText(stack)}</span>
+        <strong>{stack.submitState}</strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Parent PR</dt>
+          <dd>{branchDisplay(stack.parent)}</dd>
+        </div>
+        <div>
+          <dt>Child PRs</dt>
+          <dd>{branchListDisplay(stack.children)}</dd>
+        </div>
+        <div>
+          <dt>Merge</dt>
+          <dd>{stack.mergeState ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Trunk</dt>
+          <dd>{stack.trunk ?? "Unknown"}</dd>
+        </div>
+      </dl>
+      <div className="pr-subsection">
+        <h3>Stack Order</h3>
+        <div className="stack-list">
+          {visibleBranches.map((branch) => (
+            <GraphiteBranchRow key={branch.name} branch={branch} />
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -797,7 +910,8 @@ export function App() {
     () => selectedIssueState ? selectedIssueState.runners.map(runnerFromApiState) : runnerBackends,
     [selectedIssueState]
   );
-  const pullRequestState = selectedIssueState?.pullRequests[0];
+  const pullRequestState = gitHubPullRequestState(selectedIssueState?.pullRequests);
+  const graphiteState = graphiteStackState(selectedIssueState?.pullRequests);
   const reviewState = selectedIssueState?.reviews[0];
   const linearPullRequest = linearIssue?.pullRequests[0];
   const linearActions = selectedIssueState?.linearStatusActions ?? fallbackLinearActions;
@@ -1054,6 +1168,7 @@ export function App() {
         </section>
 
         <PullRequestPanel pullRequestState={pullRequestState} linearPullRequest={linearPullRequest} />
+        <GraphiteStackPanel stackState={graphiteState} />
 
         <section className="inspector-section">
           <h2>Review Controls</h2>

@@ -40,6 +40,9 @@ import type {
 } from "./lib/types";
 import type {
   AdapterState,
+  GitHubCheck,
+  GitHubPullRequestDetails,
+  GitHubReviewComment,
   LinearIssueDetails,
   LinearStatusAction,
   PullRequestApiState,
@@ -109,6 +112,32 @@ function runnerFromApiState(runner: RunnerApiState): RunnerBackend {
 function pullRequestLabel(pullRequest: PullRequestApiState | undefined) {
   if (!pullRequest) return "No PR adapter";
   return `${pullRequest.provider}: ${labelForStatus(pullRequest.status)}`;
+}
+
+function pullRequestTone(pullRequest: GitHubPullRequestDetails): Tone {
+  if (pullRequest.checks.status === "failing" || pullRequest.reviewDecision === "CHANGES_REQUESTED") {
+    return "danger";
+  }
+
+  if (pullRequest.checks.status === "pending" || pullRequest.isDraft) return "warning";
+  return "success";
+}
+
+function shortSha(value: string | undefined) {
+  return value ? value.slice(0, 7) : "Unknown";
+}
+
+function bodyPreview(value: string, length = 180) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > length ? `${compact.slice(0, length - 1)}...` : compact;
+}
+
+function reviewCommentMeta(comment: GitHubReviewComment) {
+  const author = comment.author ? `@${comment.author}` : "Unknown author";
+  const location = comment.path
+    ? `${comment.path}${comment.line ? `:${comment.line}` : ""}`
+    : labelForStatus(comment.kind);
+  return `${author} | ${location}`;
 }
 
 function reviewLabel(review: ReviewApiState | undefined) {
@@ -233,9 +262,41 @@ function IssueRow({
 function initialSelectedIssueId() {
   const params = new URLSearchParams(window.location.search);
   const requestedIssueId = params.get("issue")?.toUpperCase();
-  return issues.some((issue) => issue.id === requestedIssueId)
+  return requestedIssueId && /^[a-z]+-\d+$/i.test(requestedIssueId)
     ? requestedIssueId
     : issues[0].id;
+}
+
+function hasStaticIssue(issueId: string) {
+  return issues.some((issue) => issue.id === issueId);
+}
+
+function issueCardFromState(issueId: string, issueState: WorkflowIssueState | undefined): IssueCard {
+  const linearIssue = issueState?.issue.linear;
+  const workspace = issueState?.workspace;
+  const pullRequest = issueState?.pullRequests[0];
+  const summary = pullRequest?.detail
+    ?? workspace?.adapter.detail
+    ?? issueState?.issue.adapter.detail
+    ?? "Dynamic issue loaded from the local workflow API.";
+
+  return {
+    id: issueId,
+    title: linearIssue?.title ?? "Loading issue state",
+    repo: issueState?.project.displayName ?? "workflow-hub",
+    status: issueStatusFromLinear(linearIssue?.status, "Backlog"),
+    runner: "Codex",
+    branch: workspace?.branch ?? "Resolving branch",
+    worktree: workspace?.path ?? "Resolving issue workspace",
+    pr: pullRequest?.pullRequest
+      ? `#${pullRequest.pullRequest.number} ${pullRequest.pullRequest.title}`
+      : undefined,
+    lastEvent: pullRequest?.detail ?? issueState?.issue.adapter.detail ?? "Loading local API state",
+    buildTarget: "None",
+    risk: "medium",
+    phase: "Workflow Visibility",
+    summary
+  };
 }
 
 function ActionButton({
@@ -479,32 +540,194 @@ function RunnerRow({ runner }: { runner: RunnerBackend }) {
   );
 }
 
+function CheckRow({ check }: { check: GitHubCheck }) {
+  const annotations = check.annotations.slice(0, 3);
+  const checkLabel = check.detailsUrl ? (
+    <a href={check.detailsUrl} rel="noreferrer" target="_blank">
+      {check.name}
+    </a>
+  ) : (
+    <span>{check.name}</span>
+  );
+
+  return (
+    <article className={`check-row ${classNameFor(check.state)}`}>
+      <div className="check-row-main">
+        <div>
+          {checkLabel}
+          <p>{labelForStatus(check.conclusion || check.status || check.state)}</p>
+        </div>
+        <strong>{labelForStatus(check.state)}</strong>
+      </div>
+      {annotations.length > 0 ? (
+        <div className="annotation-list">
+          {annotations.map((annotation, index) => (
+            <p key={`${annotation.path ?? "annotation"}-${annotation.startLine ?? index}`}>
+              <span>{annotation.path ?? "annotation"}{annotation.startLine ? `:${annotation.startLine}` : ""}</span>
+              {annotation.message ?? annotation.title ?? "Check annotation"}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ReviewCommentRow({ comment }: { comment: GitHubReviewComment }) {
+  const body = (
+    <>
+      <strong>{reviewCommentMeta(comment)}</strong>
+      <span>{bodyPreview(comment.body)}</span>
+    </>
+  );
+
+  return comment.url ? (
+    <a className="review-comment-row" href={comment.url} rel="noreferrer" target="_blank">
+      {body}
+    </a>
+  ) : (
+    <div className="review-comment-row">{body}</div>
+  );
+}
+
+function PullRequestPanel({
+  pullRequestState,
+  linearPullRequest
+}: {
+  pullRequestState: PullRequestApiState | undefined;
+  linearPullRequest: LinearIssueDetails["pullRequests"][number] | undefined;
+}) {
+  const pullRequest = pullRequestState?.pullRequest;
+  const fallbackLink = linearPullRequest?.url;
+
+  if (!pullRequest) {
+    return (
+      <section className="inspector-section">
+        <h2>GitHub PR</h2>
+        <div className="review-line">
+          <GitPullRequest size={16} />
+          {fallbackLink ? (
+            <a href={fallbackLink} rel="noreferrer" target="_blank">
+              {linearPullRequest?.title ?? fallbackLink}
+            </a>
+          ) : (
+            <span>{pullRequestState?.detail ?? "No GitHub PR data loaded"}</span>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const failingChecks = pullRequest.checks.checks.filter((check) => check.state === "failing");
+  const comments = pullRequest.reviewComments.slice(0, 4);
+
+  return (
+    <section className="inspector-section pr-section">
+      <h2>GitHub PR</h2>
+      <a className="pr-link" href={pullRequest.url} rel="noreferrer" target="_blank">
+        #{pullRequest.number} {pullRequest.title}
+      </a>
+      <div className={`pr-health ${pullRequestTone(pullRequest)}`}>
+        <span>{pullRequest.isDraft ? "Draft" : labelForStatus(pullRequest.state)}</span>
+        <strong>{labelForStatus(pullRequest.checks.status)}</strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Review</dt>
+          <dd>{labelForStatus(pullRequest.reviewDecision)}</dd>
+        </div>
+        <div>
+          <dt>Merge</dt>
+          <dd>{labelForStatus(pullRequest.mergeStateStatus || pullRequest.mergeable)}</dd>
+        </div>
+        <div>
+          <dt>Branch</dt>
+          <dd>{pullRequest.headRefName ?? "Unknown"} {"->"} {pullRequest.baseRefName ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Head</dt>
+          <dd>{shortSha(pullRequest.headRefOid)}</dd>
+        </div>
+        <div>
+          <dt>Matched by</dt>
+          <dd>{pullRequest.matchedBy ? labelForStatus(pullRequest.matchedBy) : "Unknown"}</dd>
+        </div>
+      </dl>
+
+      <div className="pr-subsection">
+        <h3>Checks</h3>
+        <p>
+          {pullRequest.checks.passing} passing, {pullRequest.checks.pending} pending, {pullRequest.checks.failing} failing
+        </p>
+        {failingChecks.length > 0 ? (
+          <div className="check-list">
+            {failingChecks.map((check) => (
+              <CheckRow key={check.id ?? check.name} check={check} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="pr-subsection">
+        <h3>Latest Review Comments</h3>
+        {comments.length > 0 ? (
+          <div className="review-comment-list">
+            {comments.map((comment, index) => (
+              <ReviewCommentRow key={comment.id ?? `${comment.kind}-${index}`} comment={comment} />
+            ))}
+          </div>
+        ) : (
+          <p>No review comments found.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
+  const [dynamicIssueIds, setDynamicIssueIds] = useState<string[]>(() => {
+    const initialIssueId = initialSelectedIssueId();
+    return hasStaticIssue(initialIssueId) ? [] : [initialIssueId];
+  });
+  const [dynamicIssueCards, setDynamicIssueCards] = useState<Record<string, IssueCard>>({});
   const [pendingActionId, setPendingActionId] = useState<string>();
   const [workpadNote, setWorkpadNote] = useState("");
   const [riskAccepted, setRiskAccepted] = useState(false);
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
+  const selectedIssueState = issueState?.issue.issueId === selectedIssueId ? issueState : undefined;
   const selected = useMemo(
-    () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
-    [selectedIssueId]
+    () => issues.find((issue) => issue.id === selectedIssueId)
+      ?? (selectedIssueState
+        ? issueCardFromState(selectedIssueId, selectedIssueState)
+        : dynamicIssueCards[selectedIssueId] ?? issueCardFromState(selectedIssueId, undefined)),
+    [dynamicIssueCards, selectedIssueId, selectedIssueState]
   );
-  const linearIssue = issueState?.issue.linear;
+  const linearIssue = selectedIssueState?.issue.linear;
   const sidebarIssues = useMemo(
-    () => issues.map((issue) => {
-      if (issue.id !== selected.id || !linearIssue) return issue;
+    () => {
+      const dynamicIssues = dynamicIssueIds
+        .filter((issueId) => !hasStaticIssue(issueId))
+        .map((issueId) => issueId === selected.id
+          ? selected
+          : dynamicIssueCards[issueId] ?? issueCardFromState(issueId, undefined));
+      const listedIssues = [...dynamicIssues, ...issues];
 
-      return {
-        ...issue,
-        title: linearIssue.title,
-        status: issueStatusFromLinear(linearIssue.status, issue.status),
-        pr: linearIssue.pullRequests[0]?.title ?? issue.pr
-      };
-    }),
-    [linearIssue, selected.id]
+      return listedIssues.map((issue) => {
+        if (issue.id !== selected.id || !linearIssue) return issue;
+
+        return {
+          ...issue,
+          title: linearIssue.title,
+          status: issueStatusFromLinear(linearIssue.status, issue.status),
+          pr: linearIssue.pullRequests[0]?.title ?? issue.pr
+        };
+      });
+    },
+    [dynamicIssueCards, dynamicIssueIds, linearIssue, selected]
   );
 
   const refreshIssueState = useCallback(async () => {
@@ -517,23 +740,48 @@ export function App() {
     }
 
     try {
-      const state = await window.workflowHub.issues.getState(selected.id);
+      const state = await window.workflowHub.issues.getState(selectedIssueId);
       setIssueState(state);
       setApiError(undefined);
     } catch (error: unknown) {
       setApiError(error instanceof Error ? error.message : String(error));
     }
-  }, [selected.id]);
+  }, [selectedIssueId]);
 
   useEffect(() => {
     void refreshIssueState();
   }, [refreshIssueState]);
 
-  const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
-  const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
+  useEffect(() => {
+    if (hasStaticIssue(selectedIssueId) || !selectedIssueState) return;
+    setDynamicIssueCards((current) => ({
+      ...current,
+      [selectedIssueId]: issueCardFromState(selectedIssueId, selectedIssueState)
+    }));
+  }, [selectedIssueId, selectedIssueState]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("issue") === selectedIssueId) return;
+    url.searchParams.set("issue", selectedIssueId);
+    window.history.replaceState(null, "", url.toString());
+  }, [selectedIssueId]);
+
+  const handleSelectIssue = useCallback((issueId: string) => {
+    const normalizedIssueId = issueId.toUpperCase();
+    if (!hasStaticIssue(normalizedIssueId)) {
+      setDynamicIssueIds((current) => current.includes(normalizedIssueId)
+        ? current
+        : [normalizedIssueId, ...current]);
+    }
+    setSelectedIssueId(normalizedIssueId);
+  }, []);
+
+  const workspacePath = selectedIssueState?.workspace.found ? selectedIssueState.workspace.path : selected.worktree;
+  const branch = selectedIssueState?.workspace.found ? selectedIssueState.workspace.branch : selected.branch;
   const displayTitle = linearIssue?.title ?? selected.title;
   const displayStatus = linearIssue?.status ?? selected.status;
-  const displayProject = issueState?.project.displayName ?? selected.repo;
+  const displayProject = selectedIssueState?.project.displayName ?? selected.repo;
   const doneCount = useMemo(
     () => acceptanceCriteria.filter((criterion) => criterion.status === "Done").length,
     []
@@ -542,21 +790,21 @@ export function App() {
     ? `${window.workflowHub.platform} / ${window.workflowHub.version}`
     : "browser preview";
   const sourceSignals = useMemo(
-    () => issueState ? issueState.adapters.map(signalFromAdapter) : systemSignals,
-    [issueState]
+    () => selectedIssueState ? selectedIssueState.adapters.map(signalFromAdapter) : systemSignals,
+    [selectedIssueState]
   );
   const visibleRunners = useMemo(
-    () => issueState ? issueState.runners.map(runnerFromApiState) : runnerBackends,
-    [issueState]
+    () => selectedIssueState ? selectedIssueState.runners.map(runnerFromApiState) : runnerBackends,
+    [selectedIssueState]
   );
-  const pullRequestState = issueState?.pullRequests[0];
-  const reviewState = issueState?.reviews[0];
+  const pullRequestState = selectedIssueState?.pullRequests[0];
+  const reviewState = selectedIssueState?.reviews[0];
   const linearPullRequest = linearIssue?.pullRequests[0];
-  const linearActions = issueState?.linearStatusActions ?? fallbackLinearActions;
+  const linearActions = selectedIssueState?.linearStatusActions ?? fallbackLinearActions;
   const pendingAction = linearActions.find((action) => action.id === pendingActionId);
   const localTimeline = useMemo(
-    () => issueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
-    [issueState]
+    () => selectedIssueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
+    [selectedIssueState]
   );
   const visibleTimeline = localTimeline.length > 0 ? [...localTimeline, ...timeline] : timeline;
 
@@ -637,7 +885,7 @@ export function App() {
               key={issue.id}
               issue={issue}
               active={issue.id === selected.id}
-              onSelect={setSelectedIssueId}
+              onSelect={handleSelectIssue}
             />
           ))}
         </section>
@@ -667,7 +915,7 @@ export function App() {
         </section>
 
         <section className="workspace-content">
-          <ResolutionPanel selectedIssue={selected} issueState={issueState} apiError={apiError} />
+          <ResolutionPanel selectedIssue={selected} issueState={selectedIssueState} apiError={apiError} />
 
           <LinearActionBoard
             actions={linearActions}
@@ -760,7 +1008,7 @@ export function App() {
           <dl>
             <div>
               <dt>Status</dt>
-              <dd>{linearIssue?.status ?? labelForStatus(issueState?.issue.status ?? "loading")}</dd>
+              <dd>{linearIssue?.status ?? labelForStatus(selectedIssueState?.issue.status ?? "loading")}</dd>
             </div>
             <div>
               <dt>Priority</dt>
@@ -784,7 +1032,7 @@ export function App() {
             </div>
             <div>
               <dt>Cache</dt>
-              <dd>{cacheText(issueState)}</dd>
+              <dd>{cacheText(selectedIssueState)}</dd>
             </div>
           </dl>
         </section>
@@ -805,15 +1053,13 @@ export function App() {
           ))}
         </section>
 
+        <PullRequestPanel pullRequestState={pullRequestState} linearPullRequest={linearPullRequest} />
+
         <section className="inspector-section">
-          <h2>Review</h2>
-          <div className="review-line">
-            <GitPullRequest size={16} />
-            <span>{selected.pr ?? linearPullRequest?.title ?? pullRequestLabel(pullRequestState)}</span>
-          </div>
+          <h2>Review Controls</h2>
           <div className="review-line">
             <Workflow size={16} />
-            <span>{reviewLabel(reviewState) ?? selected.lastEvent}</span>
+            <span>{reviewLabel(reviewState) ?? selected.lastEvent ?? pullRequestLabel(pullRequestState)}</span>
           </div>
         </section>
       </aside>

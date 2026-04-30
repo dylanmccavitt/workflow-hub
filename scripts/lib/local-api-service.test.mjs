@@ -83,6 +83,61 @@ async function symphonyFixtureState({ issueId, issue, workspace }) {
   };
 }
 
+function githubFixtureState() {
+  return {
+    provider: "GitHub",
+    status: "available",
+    detail: "PR #12 open; checks success; review approved.",
+    candidates: [
+      {
+        source: "git-branch",
+        label: "Workspace branch feat/age-349-local-api-boundary",
+        branch: "feat/age-349-local-api-boundary"
+      }
+    ],
+    pullRequest: {
+      provider: "GitHub",
+      owner: "DylanMcCavitt",
+      repo: "workflow-hub",
+      number: 12,
+      title: "[AGE-349] Add local API boundary",
+      url: "https://github.com/DylanMcCavitt/workflow-hub/pull/12",
+      state: "OPEN",
+      isDraft: false,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      reviewDecision: "APPROVED",
+      baseRefName: "main",
+      headRefName: "feat/age-349-local-api-boundary",
+      checks: {
+        status: "success",
+        total: 1,
+        passing: 1,
+        pending: 0,
+        failing: 0,
+        skipped: 0,
+        checks: [
+          {
+            name: "typecheck",
+            state: "success",
+            status: "COMPLETED",
+            conclusion: "SUCCESS",
+            annotations: []
+          }
+        ]
+      },
+      reviewComments: []
+    },
+    adapter: {
+      id: "pr:github",
+      label: "GitHub PR",
+      status: "available",
+      detail: "PR #12 open; checks success; review approved.",
+      recoverable: false
+    }
+  };
+}
+
 async function syncFixtureIssue({ project, repository, clock, staleAfterMs }) {
   const fetchedAt = clock().toISOString();
 
@@ -143,7 +198,7 @@ test("normalizes issue identifiers", () => {
   assert.throws(() => normalizeIssueId("../AGE-349"), LocalApiValidationError);
 });
 
-test("returns a typed issue state with resolved workspace, Linear cache, and unavailable future adapters", async (t) => {
+test("returns a typed issue state with resolved workspace, Linear cache, and GitHub PR state", async (t) => {
   const repository = memoryRepository();
   t.after(() => repository.close());
 
@@ -152,6 +207,7 @@ test("returns a typed issue state with resolved workspace, Linear cache, and una
     registryRepository: repository,
     syncLinearProjectIssues: syncFixtureIssue,
     readSymphonyState: symphonyFixtureState,
+    readGitHubPullRequestState: githubFixtureState,
     clock: () => new Date("2026-04-30T12:00:00.000Z"),
     findWorkspace: () => ({
       project: registry.projects[0],
@@ -186,10 +242,11 @@ test("returns a typed issue state with resolved workspace, Linear cache, and una
   assert.equal(state.symphony.selectedIssue.normalizedState, "active");
   assert.equal(state.runners.find((runner) => runner.kind === "Symphony").status, "available");
   assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "unavailable");
-  assert.equal(state.pullRequests[0].status, "unavailable");
+  assert.equal(state.pullRequests[0].status, "available");
+  assert.equal(state.pullRequests[0].pullRequest.number, 12);
   assert.equal(state.adapters.some((adapter) => adapter.id === "project-config" && adapter.status === "available"), true);
   assert.equal(state.adapters.some((adapter) => adapter.id === "linear" && adapter.status === "available"), true);
-  assert.equal(state.adapters.some((adapter) => adapter.id === "pr:github" && adapter.ownerIssue === "AGE-358"), true);
+  assert.equal(state.adapters.some((adapter) => adapter.id === "pr:github" && adapter.status === "available"), true);
 });
 
 test("applies explicit Linear actions and records write events", async (t) => {

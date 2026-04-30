@@ -88,6 +88,7 @@ export interface LinearIssueDetails {
   status: string;
   statusType?: string;
   url?: string;
+  branchName?: string;
   priority?: number;
   priorityLabel?: string;
   labels: Array<{ id: string; name: string }>;
@@ -206,6 +207,92 @@ export interface PullRequestApiState {
   status: EntityStatus;
   detail: string;
   adapter: AdapterState;
+  candidates?: PullRequestCandidate[];
+  pullRequest?: GitHubPullRequestDetails;
+}
+
+export interface PullRequestCandidate {
+  source: string;
+  label: string;
+  number?: number;
+  url?: string;
+  branch?: string;
+  repository?: {
+    owner: string;
+    repo: string;
+  };
+}
+
+export interface GitHubPullRequestDetails {
+  provider: "GitHub";
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  mergeable: string;
+  mergeStateStatus: string;
+  reviewDecision: string;
+  baseRefName?: string;
+  headRefName?: string;
+  headRefOid?: string;
+  author?: {
+    login?: string;
+    name?: string;
+    isBot?: boolean;
+  };
+  matchedBy?: string;
+  checks: GitHubCheckSummary;
+  reviewComments: GitHubReviewComment[];
+}
+
+export interface GitHubCheckSummary {
+  status: "none" | "success" | "pending" | "failing";
+  total: number;
+  passing: number;
+  pending: number;
+  failing: number;
+  skipped: number;
+  checks: GitHubCheck[];
+}
+
+export interface GitHubCheck {
+  id?: string;
+  databaseId?: number;
+  name: string;
+  state: "success" | "pending" | "failing" | "skipped" | "unknown";
+  status: string;
+  conclusion: string;
+  detailsUrl?: string;
+  startedAt?: string;
+  completedAt?: string;
+  annotations: GitHubCheckAnnotation[];
+}
+
+export interface GitHubCheckAnnotation {
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+  level?: string;
+  title?: string;
+  message?: string;
+  rawDetails?: string;
+  url?: string;
+}
+
+export interface GitHubReviewComment {
+  id?: string;
+  kind: "inline" | "review" | "comment";
+  author?: string;
+  body: string;
+  state?: string;
+  path?: string;
+  line?: number;
+  url?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface WorkflowIssueState {

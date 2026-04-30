@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a read-only Linear project issue sync adapter, and a main-process local API service for resolving selected issue state through typed IPC. Symphony, runner, review-control, and PR-provider adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, and a main-process local API service for resolving selected issue state through typed IPC. Symphony, runner, review-control, and PR-provider adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
@@ -18,8 +18,9 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
 - `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, and PR state contracts. It owns project config reads, scoped git probes, and unavailable-adapter responses.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
+- `scripts/lib/linear-writes.mjs`: Explicit Linear status action adapter. It maps allowed workflow states, enforces confirmation for dispatching or externally visible states, updates the persistent `## Codex Workpad` comment by merging structured sections, and leaves passive sync read-only.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
-- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state and adapter availability for the selected issue.
+- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -44,7 +45,16 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, and marks missing adapters as recoverable unavailable state.
 4. Hub shows branch, PR, runner, and Symphony state.
 5. User launches simulator/device review from the issue worktree.
-6. User marks `Needs Fixes` or proceeds to merge through explicit actions.
+6. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
+
+### Linear Writes
+
+1. User selects a named status action in the desktop UI.
+2. Hub shows the pending transition, target state, Workpad note field, and any confirmation requirement.
+3. The renderer sends a narrow `applyAction` IPC request only after the user confirms.
+4. Electron delegates the write to the repo CLI under the system Node runtime.
+5. The Node-side adapter updates the Linear status, merges a structured update into the existing `## Codex Workpad` comment or creates one if missing, and records the result in the local registry event store.
+6. Hub refreshes Linear/cache state and renders the local write event in the issue timeline.
 
 ### Agent Dispatch
 
@@ -69,3 +79,5 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - Local project config resolves paths and launch metadata only; it is not a source of truth for issue, branch, PR, or review state.
 - Renderer code must not directly execute shell commands, read arbitrary local files, or talk to SQLite/provider adapters.
 - Destructive actions require explicit user confirmation.
+- Passive Linear sync must never mutate issue state or comments.
+- Linear comments alone are context; dispatch-capable routing must come from explicit status actions or a configured external trigger.

@@ -28,6 +28,7 @@ Usage:
   npm run workflow -- config [--json]
   npm run workflow -- api-state [ISSUE_ID] --json
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
+  npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--note NOTE] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
   npm run workflow -- review ISSUE_ID --sim|--device
@@ -151,6 +152,81 @@ async function apiState(args) {
   const localApiService = createLocalApiService();
   const payload = await localApiService.getIssueState(issueId);
   console.log(JSON.stringify(payload, null, 2));
+}
+
+function parseLinearActionArgs(args, registry) {
+  let issueId;
+  let actionId;
+  let note;
+  let confirmed = false;
+  let json = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--confirmed") {
+      confirmed = true;
+      continue;
+    }
+
+    if (arg === "--note") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--note requires a value");
+      }
+      note = args[index];
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown linear-action flag: ${arg}`);
+    }
+
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg) && !actionId) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+
+    if (!actionId) {
+      actionId = arg;
+      continue;
+    }
+
+    throw new Error(`Unexpected linear-action argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = selectIssueId(undefined, registry);
+  }
+
+  if (!actionId) {
+    throw new Error("linear-action requires an ACTION such as ready, human-review, or blocked.");
+  }
+
+  return { issueId, actionId, confirmed, note, json };
+}
+
+async function linearAction(args) {
+  const registry = readProjectConfig();
+  const parsed = parseLinearActionArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.applyIssueAction(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log([
+    payload.message,
+    `Workpad: ${payload.workpad.operation} ${payload.workpad.commentId}`,
+    `Event: ${payload.event.id}`
+  ].join("\n"));
 }
 
 function requireResolvedWorkspace(issueId, registry) {
@@ -312,6 +388,11 @@ try {
 
   if (command === "linear-sync") {
     await linearSync(args[0], args[1]);
+    process.exit(0);
+  }
+
+  if (command === "linear-action") {
+    await linearAction(args);
     process.exit(0);
   }
 

@@ -1,7 +1,8 @@
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   Bot,
   CheckCircle2,
   CircleDot,
@@ -10,8 +11,10 @@ import {
   GitBranch,
   GitPullRequest,
   Laptop,
+  MessageSquareText,
   Play,
   RotateCw,
+  ShieldAlert,
   Smartphone,
   Terminal,
   Workflow
@@ -38,9 +41,11 @@ import type {
 import type {
   AdapterState,
   LinearIssueDetails,
+  LinearStatusAction,
   PullRequestApiState,
   ReviewApiState,
   RunnerApiState,
+  WorkflowEvent,
   WorkflowIssueState
 } from "./lib/workflowHubApi";
 
@@ -53,6 +58,16 @@ const statuses: IssueStatus[] = [
   "Merging",
   "Blocked",
   "Done"
+];
+
+const fallbackLinearActions: LinearStatusAction[] = [
+  { id: "ready", label: "Ready", stateName: "Ready", confirmationRequired: true },
+  { id: "in-progress", label: "In Progress", stateName: "In Progress", confirmationRequired: true },
+  { id: "human-review", label: "Human Review", stateName: "Human Review", confirmationRequired: true },
+  { id: "needs-fixes", label: "Needs Fixes", stateName: "Needs Fixes", confirmationRequired: true },
+  { id: "merging", label: "Merging", stateName: "Merging", confirmationRequired: true },
+  { id: "done", label: "Done", stateName: "Done", confirmationRequired: true },
+  { id: "blocked", label: "Blocked", stateName: "Blocked", confirmationRequired: false }
 ];
 
 function classNameFor(value: string) {
@@ -114,6 +129,10 @@ function labelsText(linearIssue: LinearIssueDetails | undefined) {
   return linearIssue?.labels.length ? linearIssue.labels.map((label) => label.name).join(", ") : "None";
 }
 
+function issueStatusFromLinear(status: string | undefined, fallback: IssueStatus): IssueStatus {
+  return statuses.includes(status as IssueStatus) ? status as IssueStatus : fallback;
+}
+
 function workpadText(linearIssue: LinearIssueDetails | undefined) {
   if (!linearIssue?.codexWorkpad) return "Not found";
   return linearIssue.codexWorkpad.updatedAt
@@ -139,6 +158,31 @@ function formatTimestamp(value: string) {
     hour: "numeric",
     minute: "2-digit"
   });
+}
+
+function timelineToneForEvent(event: WorkflowEvent): Tone {
+  if (/failed|error/i.test(event.type)) return "danger";
+  if (/blocked|needs-fixes/i.test(String(event.payload.nextStatus ?? event.message))) return "warning";
+  return "success";
+}
+
+function timelineFromWorkflowEvent(event: WorkflowEvent): TimelineEvent {
+  const previousStatus = typeof event.payload.previousStatus === "string"
+    ? event.payload.previousStatus
+    : undefined;
+  const nextStatus = typeof event.payload.nextStatus === "string"
+    ? event.payload.nextStatus
+    : undefined;
+  const statusDetail = previousStatus && nextStatus
+    ? `${previousStatus} -> ${nextStatus}`
+    : event.type;
+
+  return {
+    id: event.id,
+    label: event.message,
+    detail: `${formatTimestamp(event.createdAt)} | ${statusDetail}`,
+    tone: timelineToneForEvent(event)
+  };
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -208,6 +252,122 @@ function ActionButton({
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+function LinearActionBoard({
+  actions,
+  currentStatus,
+  pendingActionId,
+  disabled,
+  onSelect
+}: {
+  actions: LinearStatusAction[];
+  currentStatus: string;
+  pendingActionId: string | undefined;
+  disabled: boolean;
+  onSelect: (action: LinearStatusAction) => void;
+}) {
+  return (
+    <section className="linear-actions" aria-label="Linear status actions">
+      <div className="section-heading">
+        <p className="eyebrow">Linear writes</p>
+        <h2>Status Actions</h2>
+      </div>
+      <div className="linear-action-grid">
+        {actions.map((action) => {
+          const isCurrent = action.stateName === currentStatus;
+          const isPending = action.id === pendingActionId;
+          return (
+            <button
+              key={action.id}
+              className={`linear-action ${isCurrent ? "current" : ""} ${isPending ? "pending" : ""}`}
+              disabled={disabled}
+              onClick={() => onSelect(action)}
+              type="button"
+            >
+              <span>{action.label}</span>
+              {action.confirmationRequired ? <ShieldAlert size={15} /> : <ArrowRight size={15} />}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ConfirmationBoundary({
+  action,
+  issueId,
+  currentStatus,
+  note,
+  riskAccepted,
+  writeError,
+  isWriting,
+  onNoteChange,
+  onRiskAcceptedChange,
+  onCancel,
+  onApply
+}: {
+  action: LinearStatusAction;
+  issueId: string;
+  currentStatus: string;
+  note: string;
+  riskAccepted: boolean;
+  writeError: string | undefined;
+  isWriting: boolean;
+  onNoteChange: (value: string) => void;
+  onRiskAcceptedChange: (value: boolean) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const applyDisabled = isWriting || (action.confirmationRequired && !riskAccepted);
+
+  return (
+    <section className="confirmation-boundary" aria-label="Linear write confirmation">
+      <div className="confirmation-copy">
+        <p className="eyebrow">Confirm write</p>
+        <h3>
+          {issueId}: {currentStatus} <ArrowRight size={16} /> {action.stateName}
+        </h3>
+        {action.confirmationRequired ? (
+          <p>{action.confirmationReason ?? "This state can trigger external workflow activity."}</p>
+        ) : (
+          <p>Workflow Hub will update Linear and append a structured Workpad note.</p>
+        )}
+      </div>
+      <label className="note-field">
+        <span>
+          <MessageSquareText size={15} />
+          Workpad note
+        </span>
+        <textarea
+          onChange={(event) => onNoteChange(event.target.value)}
+          placeholder="Optional note appended under ### Notes"
+          rows={3}
+          value={note}
+        />
+      </label>
+      {action.confirmationRequired ? (
+        <label className="risk-check">
+          <input
+            checked={riskAccepted}
+            onChange={(event) => onRiskAcceptedChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Confirm this explicit Linear state change.</span>
+        </label>
+      ) : null}
+      {writeError ? <p className="write-error">{writeError}</p> : null}
+      <div className="confirmation-actions">
+        <button className="secondary-button" disabled={isWriting} onClick={onCancel} type="button">
+          Cancel
+        </button>
+        <button className="action-button primary" disabled={applyDisabled} onClick={onApply} type="button">
+          {isWriting ? "Writing..." : "Apply"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -323,14 +483,31 @@ export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
+  const [pendingActionId, setPendingActionId] = useState<string>();
+  const [workpadNote, setWorkpadNote] = useState("");
+  const [riskAccepted, setRiskAccepted] = useState(false);
+  const [isWriting, setIsWriting] = useState(false);
+  const [writeError, setWriteError] = useState<string>();
   const selected = useMemo(
     () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
     [selectedIssueId]
   );
+  const linearIssue = issueState?.issue.linear;
+  const sidebarIssues = useMemo(
+    () => issues.map((issue) => {
+      if (issue.id !== selected.id || !linearIssue) return issue;
 
-  useEffect(() => {
-    let isActive = true;
+      return {
+        ...issue,
+        title: linearIssue.title,
+        status: issueStatusFromLinear(linearIssue.status, issue.status),
+        pr: linearIssue.pullRequests[0]?.title ?? issue.pr
+      };
+    }),
+    [linearIssue, selected.id]
+  );
 
+  const refreshIssueState = useCallback(async () => {
     setIssueState(undefined);
     setApiError(undefined);
 
@@ -339,25 +516,21 @@ export function App() {
       return;
     }
 
-    window.workflowHub.issues.getState(selected.id)
-      .then((state) => {
-        if (!isActive) return;
-        setIssueState(state);
-        setApiError(undefined);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) return;
-        setApiError(error instanceof Error ? error.message : String(error));
-      });
-
-    return () => {
-      isActive = false;
-    };
+    try {
+      const state = await window.workflowHub.issues.getState(selected.id);
+      setIssueState(state);
+      setApiError(undefined);
+    } catch (error: unknown) {
+      setApiError(error instanceof Error ? error.message : String(error));
+    }
   }, [selected.id]);
+
+  useEffect(() => {
+    void refreshIssueState();
+  }, [refreshIssueState]);
 
   const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
   const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
-  const linearIssue = issueState?.issue.linear;
   const displayTitle = linearIssue?.title ?? selected.title;
   const displayStatus = linearIssue?.status ?? selected.status;
   const displayProject = issueState?.project.displayName ?? selected.repo;
@@ -379,6 +552,43 @@ export function App() {
   const pullRequestState = issueState?.pullRequests[0];
   const reviewState = issueState?.reviews[0];
   const linearPullRequest = linearIssue?.pullRequests[0];
+  const linearActions = issueState?.linearStatusActions ?? fallbackLinearActions;
+  const pendingAction = linearActions.find((action) => action.id === pendingActionId);
+  const localTimeline = useMemo(
+    () => issueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
+    [issueState]
+  );
+  const visibleTimeline = localTimeline.length > 0 ? [...localTimeline, ...timeline] : timeline;
+
+  const handleSelectLinearAction = (action: LinearStatusAction) => {
+    setPendingActionId(action.id);
+    setWorkpadNote("");
+    setRiskAccepted(false);
+    setWriteError(undefined);
+  };
+
+  const handleApplyLinearAction = async () => {
+    if (!pendingAction || !window.workflowHub?.issues?.applyAction) return;
+
+    setIsWriting(true);
+    setWriteError(undefined);
+    try {
+      await window.workflowHub.issues.applyAction({
+        issueId: selected.id,
+        actionId: pendingAction.id,
+        confirmed: true,
+        note: workpadNote.trim() || undefined
+      });
+      setPendingActionId(undefined);
+      setWorkpadNote("");
+      setRiskAccepted(false);
+      await refreshIssueState();
+    } catch (error: unknown) {
+      setWriteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsWriting(false);
+    }
+  };
 
   return (
     <main className="app-shell">
@@ -411,7 +621,7 @@ export function App() {
 
         <section className="state-groups" aria-label="Issue states">
           {statuses.map((status) => {
-            const count = issues.filter((issue) => issue.status === status).length;
+            const count = sidebarIssues.filter((issue) => issue.status === status).length;
             return (
               <button key={status} className="state-row" type="button">
                 <span>{status}</span>
@@ -422,7 +632,7 @@ export function App() {
         </section>
 
         <section className="issue-list" aria-label="Issues">
-          {issues.map((issue) => (
+          {sidebarIssues.map((issue) => (
             <IssueRow
               key={issue.id}
               issue={issue}
@@ -459,6 +669,35 @@ export function App() {
         <section className="workspace-content">
           <ResolutionPanel selectedIssue={selected} issueState={issueState} apiError={apiError} />
 
+          <LinearActionBoard
+            actions={linearActions}
+            currentStatus={displayStatus}
+            disabled={isWriting || !window.workflowHub?.issues?.applyAction}
+            onSelect={handleSelectLinearAction}
+            pendingActionId={pendingActionId}
+          />
+
+          {pendingAction ? (
+            <ConfirmationBoundary
+              action={pendingAction}
+              currentStatus={displayStatus}
+              isWriting={isWriting}
+              issueId={selected.id}
+              note={workpadNote}
+              onApply={handleApplyLinearAction}
+              onCancel={() => {
+                setPendingActionId(undefined);
+                setWorkpadNote("");
+                setRiskAccepted(false);
+                setWriteError(undefined);
+              }}
+              onNoteChange={setWorkpadNote}
+              onRiskAcceptedChange={setRiskAccepted}
+              riskAccepted={riskAccepted}
+              writeError={writeError}
+            />
+          ) : null}
+
           <section className="flow-board" aria-label="Daily workflow">
             <div className="section-heading">
               <p className="eyebrow">Daily flow</p>
@@ -484,7 +723,7 @@ export function App() {
           </section>
 
           <section className="conversation" aria-label="Timeline">
-            {timeline.map((event) => (
+            {visibleTimeline.map((event) => (
               <TimelineRow key={event.id} event={event} />
             ))}
           </section>

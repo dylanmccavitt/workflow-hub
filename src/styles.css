@@ -264,6 +264,13 @@ h1 {
   background: #9ec27f;
 }
 
+.action-button:disabled,
+.linear-action:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .header-metrics {
   display: flex;
   align-items: center;
@@ -311,6 +318,137 @@ h1 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.linear-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.linear-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.linear-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  color: #d9d4c8;
+  background: #151712;
+  cursor: pointer;
+}
+
+.linear-action span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.linear-action.current {
+  border-color: #72a7ff;
+  color: #72a7ff;
+  background: #172334;
+}
+
+.linear-action.pending {
+  border-color: #9ec27f;
+  color: #f5f0e6;
+  background: #1d2118;
+}
+
+.confirmation-boundary {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #5b482d;
+  border-radius: 8px;
+  background: #171711;
+}
+
+.confirmation-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.confirmation-copy h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.confirmation-copy p,
+.risk-check span,
+.note-field span,
+.write-error {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.note-field {
+  display: grid;
+  gap: 8px;
+}
+
+.note-field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.note-field textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  padding: 10px;
+  color: #f5f0e6;
+  background: #10110f;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.risk-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.risk-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #9ec27f;
+}
+
+.write-error {
+  color: #ff9f8f;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.secondary-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  color: #d9d4c8;
+  background: #181a15;
+  cursor: pointer;
 }
 
 .flow-step {

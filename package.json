@@ -11,12 +11,14 @@
     "dev:electron": "electron .",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "test": "node --test scripts/lib/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck",
-    "check": "npm run typecheck && npm run build",
+    "check": "npm run typecheck && npm run test && npm run build",
     "workflow": "node scripts/workflow-hub.mjs"
   },
   "dependencies": {
+    "better-sqlite3": "^12.9.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest"

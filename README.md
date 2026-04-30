@@ -8,6 +8,12 @@ Workflow Hub is intended to show Linear issue state, Symphony dispatch state, Co
 
 This repository is an initial scaffold. The UI uses static demo data while the CLI and adapters are built out issue by issue.
 
+Linear project: [Workflow Hub](https://linear.app/agentcee/project/workflow-hub-32ae906a2f1a)
+
+Parent track: [`AGE-346`](https://linear.app/agentcee/issue/AGE-346/workflow-hub-track-build-local-agent-workflow-cockpit)
+
+First implementation issue: [`AGE-347`](https://linear.app/agentcee/issue/AGE-347/foundation-local-project-registry-and-config-model)
+
 ## Run
 
 After dependencies are installed:

@@ -4,7 +4,13 @@
 
 Local project scaffold created at `/Users/dylanmccavitt/projects/workflow-hub`.
 
-The Linear track is drafted in `docs/issues/linear-track.md` but not yet created in Linear.
+Linear project created: [Workflow Hub](https://linear.app/agentcee/project/workflow-hub-32ae906a2f1a).
+
+Linear parent track created: `AGE-346` `[Workflow Hub] Track - Build local agent workflow cockpit`.
+
+Child issues created and wired with blocker relationships: `AGE-347` through `AGE-373`.
+
+The local Linear track mirror is in `docs/issues/linear-track.md`.
 
 Dependencies are listed in `package.json` but not installed yet.
 
@@ -12,16 +18,16 @@ Repo-local skills have been added under `.agents/skills/` for issue startup, iOS
 
 ## Next
 
-1. Confirm Linear project/issue creation.
-2. Confirm dependency installation.
-3. Create first issue worktree after Linear returns the first issue ID.
-4. Run `npm run typecheck` and `npm run build`.
+1. Start `AGE-347` `[Foundation] Local project registry and config model`.
+2. Create one branch and one worktree for `AGE-347`.
+3. Confirm dependency installation before running `npm install`.
+4. Run `npm run typecheck` and `npm run build` after dependencies are installed.
 
 ## Risks
 
-- Linear project/issue creation requires explicit user confirmation.
 - `npm install` requires explicit user confirmation because it installs third-party packages.
 - The current UI uses static demo data.
+- The Linear track is intentionally subject to change as implementation reveals better issue boundaries.
 
 ## Files
 
@@ -50,6 +56,7 @@ Repo-local skills have been added under `.agents/skills/` for issue startup, iOS
 - `node scripts/workflow-hub.mjs`
 - manual repo-skill structure check for `.agents/skills/*/SKILL.md`
 - `git diff --check`
+- Linear project and issue readback after creation
 
 Not run yet:
 

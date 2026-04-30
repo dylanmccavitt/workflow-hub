@@ -1,14 +1,10 @@
 /// <reference types="vite/client" />
 
-import type { ResolvedWorkspace } from "./lib/types";
+import type { WorkflowHubApi } from "./lib/workflowHubApi";
 
 declare global {
   interface Window {
-    workflowHub?: {
-      version: string;
-      platform: string;
-      resolveIssueWorkspace(issueId: string): Promise<ResolvedWorkspace>;
-    };
+    workflowHub?: WorkflowHubApi;
   }
 }
 

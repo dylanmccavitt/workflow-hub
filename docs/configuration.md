@@ -76,3 +76,24 @@ Arrays replace the tracked example values. Nested objects merge by key.
 ```
 
 The config helps Workflow Hub find local paths. It does not make the config a source of truth for issue state, branch state, PR state, or review state. Those stay in Linear, git, PR providers, repo docs, and code.
+
+## Workspace Resolution Commands
+
+The CLI resolves issue workspaces from the configured `worktrees.roots`.
+
+```sh
+npm run workflow -- status AGE-350
+npm run workflow -- open AGE-350 --zed
+npm run workflow -- open AGE-350 --xcode
+npm run workflow -- open AGE-350 --finder
+npm run workflow -- open AGE-350 --terminal
+```
+
+When the command is run from inside a configured issue worktree, `status` and `open` may omit the issue ID:
+
+```sh
+npm run workflow -- status
+npm run workflow -- open --zed
+```
+
+Status output shows the canonical repo and the issue workspace separately, including branch, head SHA, and dirty/clean git state. The resolver does not treat the canonical checkout as an issue workspace.

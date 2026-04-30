@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 export const repoRoot = path.resolve(new URL("../..", import.meta.url).pathname);
 export const trackedConfigPath = path.join(repoRoot, "config", "projects.example.json");
@@ -9,6 +10,7 @@ export const localConfigPath = path.join(repoRoot, "config", "projects.json");
 const SCHEMA_VERSION = 1;
 const DEFAULT_SIMULATOR_NAME = "iPhone 17 Pro";
 const DEFAULT_DERIVED_DATA_ROOT = "/tmp";
+const ISSUE_ID_PATTERN = /[a-z]+-\d+/i;
 
 export class ProjectConfigValidationError extends Error {
   constructor(errors) {
@@ -138,6 +140,59 @@ function expandPath(input) {
   if (input === "~") return os.homedir();
   if (input.startsWith("~/")) return path.join(os.homedir(), input.slice(2));
   return input;
+}
+
+function isDirectory(filePath) {
+  try {
+    return fs.statSync(filePath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function pathContains(parentPath, childPath) {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+function candidateKey(project, workspacePath) {
+  return `${project.id}:${path.resolve(workspacePath)}`;
+}
+
+function matchRank(matchType) {
+  if (matchType === "template") return 100;
+  if (matchType === "directory-name") return 90;
+  return 60;
+}
+
+function addCandidate(candidatesByKey, candidate) {
+  const key = candidateKey(candidate.project, candidate.path);
+  const existing = candidatesByKey.get(key);
+
+  if (!existing || matchRank(candidate.matchType) > matchRank(existing.matchType)) {
+    candidatesByKey.set(key, candidate);
+  }
+}
+
+function runGit(args, cwd) {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0) {
+    return undefined;
+  }
+
+  return result.stdout.trim();
+}
+
+export function normalizeIssueId(issueId) {
+  if (!isNonEmptyString(issueId) || !/^[a-z]+-\d+$/i.test(issueId.trim())) {
+    throw new Error("issueId must look like AGE-350");
+  }
+
+  return issueId.trim().toUpperCase();
 }
 
 function isAbsoluteConfigPath(value) {
@@ -306,34 +361,186 @@ export function renderIssuePath(template, issueId) {
     .replaceAll("{issueIdLower}", issueId.toLowerCase());
 }
 
-export function findWorkspace(issueId, registry = readProjectConfig()) {
-  const candidates = [];
+export function findWorkspaceCandidates(issueId, registry = readProjectConfig()) {
+  const normalizedIssueId = normalizeIssueId(issueId);
+  const issueIdLower = normalizedIssueId.toLowerCase();
+  const candidatesByKey = new Map();
 
   for (const project of registry.projects) {
     for (const root of project.workspaceRoots) {
-      if (!fs.existsSync(root)) continue;
+      if (!isDirectory(root)) continue;
 
-      const templated = path.join(root, renderIssuePath(project.issuePathTemplate, issueId));
-      if (fs.existsSync(templated)) {
-        candidates.push({ project, path: templated });
+      const templated = path.join(root, renderIssuePath(project.issuePathTemplate, normalizedIssueId));
+      if (isDirectory(templated)) {
+        addCandidate(candidatesByKey, {
+          issueId: normalizedIssueId,
+          project,
+          root,
+          path: templated,
+          matchType: "template"
+        });
       }
 
       for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const fullPath = path.join(root, entry.name);
-        if (entry.name.toLowerCase().includes(issueId.toLowerCase()) && !candidates.some((candidate) => candidate.path === fullPath)) {
-          candidates.push({ project, path: fullPath });
+        const entryName = entry.name.toLowerCase();
+
+        if (entryName === issueIdLower || entryName.includes(issueIdLower)) {
+          addCandidate(candidatesByKey, {
+            issueId: normalizedIssueId,
+            project,
+            root,
+            path: fullPath,
+            matchType: entryName === issueIdLower ? "directory-name" : "directory-contains"
+          });
         }
       }
     }
   }
 
+  return [...candidatesByKey.values()].sort((left, right) => {
+    const rankDelta = matchRank(right.matchType) - matchRank(left.matchType);
+    if (rankDelta !== 0) return rankDelta;
+    return left.path.localeCompare(right.path);
+  });
+}
+
+export function findWorkspace(issueId, registry = readProjectConfig()) {
+  const candidates = findWorkspaceCandidates(issueId, registry);
   return candidates[0];
 }
 
+export function inferIssueIdFromCwd(cwd = process.cwd(), registry = readProjectConfig()) {
+  const currentPath = path.resolve(cwd);
+
+  for (const project of registry.projects) {
+    if (isDirectory(project.canonicalPath) && pathContains(project.canonicalPath, currentPath)) {
+      return undefined;
+    }
+  }
+
+  for (const project of registry.projects) {
+    for (const root of project.workspaceRoots) {
+      if (!isDirectory(root) || !pathContains(root, currentPath)) continue;
+
+      const relativePath = path.relative(root, currentPath);
+      const workspaceName = relativePath.split(path.sep).filter(Boolean)[0];
+      const match = workspaceName?.match(ISSUE_ID_PATTERN);
+
+      if (match) {
+        return {
+          issueId: normalizeIssueId(match[0]),
+          project,
+          root,
+          path: path.join(root, workspaceName)
+        };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function gitStatusForPath(targetPath) {
+  if (!isDirectory(targetPath)) {
+    return {
+      exists: false,
+      branch: undefined,
+      headSha: undefined,
+      remote: undefined,
+      upstream: undefined,
+      dirty: undefined,
+      statusLines: []
+    };
+  }
+
+  const statusText = runGit(["status", "--short", "--branch"], targetPath);
+  if (statusText === undefined) {
+    return {
+      exists: true,
+      branch: undefined,
+      headSha: undefined,
+      remote: undefined,
+      upstream: undefined,
+      dirty: undefined,
+      statusLines: []
+    };
+  }
+
+  const statusLines = statusText.split("\n").filter(Boolean);
+
+  return {
+    exists: true,
+    branch: runGit(["branch", "--show-current"], targetPath) || undefined,
+    headSha: runGit(["rev-parse", "--short", "HEAD"], targetPath) || undefined,
+    remote: runGit(["remote", "get-url", "origin"], targetPath) || undefined,
+    upstream: runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], targetPath) || undefined,
+    dirty: statusLines.slice(1).length > 0,
+    statusLines
+  };
+}
+
+export function resolveIssueWorkspace(issueId, registry = readProjectConfig()) {
+  const normalizedIssueId = normalizeIssueId(issueId);
+  const candidates = findWorkspaceCandidates(normalizedIssueId, registry);
+  const match = candidates[0];
+
+  if (!match) {
+    return {
+      issueId: normalizedIssueId,
+      found: false,
+      searchedRoots: registry.projects.flatMap((project) => project.workspaceRoots.map((root) => ({
+        projectId: project.id,
+        root
+      }))),
+      candidates: []
+    };
+  }
+
+  const workspaceGit = gitStatusForPath(match.path);
+  const canonicalGit = gitStatusForPath(match.project.canonicalPath);
+
+  return {
+    issueId: normalizedIssueId,
+    found: true,
+    project: {
+      id: match.project.id,
+      displayName: match.project.displayName,
+      linear: match.project.linear
+    },
+    canonical: {
+      path: match.project.canonicalPath,
+      expectedBranch: match.project.canonicalBranch,
+      exists: canonicalGit.exists,
+      branch: canonicalGit.branch,
+      headSha: canonicalGit.headSha,
+      dirty: canonicalGit.dirty,
+      statusLines: canonicalGit.statusLines
+    },
+    workspace: {
+      path: match.path,
+      root: match.root,
+      matchType: match.matchType,
+      branch: workspaceGit.branch,
+      headSha: workspaceGit.headSha,
+      remote: workspaceGit.remote,
+      upstream: workspaceGit.upstream,
+      dirty: workspaceGit.dirty,
+      statusLines: workspaceGit.statusLines
+    },
+    candidates: candidates.map((candidate) => ({
+      projectId: candidate.project.id,
+      root: candidate.root,
+      path: candidate.path,
+      matchType: candidate.matchType
+    }))
+  };
+}
+
 export function requireIosConfig(project) {
-  if (!project.ios) {
-    throw new Error(`${project.id} does not define ios settings in project config.`);
+  if (!project?.ios) {
+    throw new Error(`${project?.id ?? "Selected project"} does not define ios settings in project config.`);
   }
 
   return project.ios;

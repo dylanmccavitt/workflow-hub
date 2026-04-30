@@ -21,6 +21,9 @@ import {
 import {
   readSymphonyState as defaultReadSymphonyState
 } from "./symphony-state.mjs";
+import {
+  readGitHubPullRequestState as defaultReadGitHubPullRequestState
+} from "./github-pr-state.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -52,6 +55,7 @@ export function createLocalApiService(options = {}) {
   const syncLinearProjectIssues = options.syncLinearProjectIssues ?? defaultSyncLinearProjectIssues;
   const applyLinearStatusAction = options.applyLinearStatusAction ?? defaultApplyLinearStatusAction;
   const readSymphonyState = options.readSymphonyState ?? defaultReadSymphonyState;
+  const readGitHubPullRequestState = options.readGitHubPullRequestState ?? defaultReadGitHubPullRequestState;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -96,6 +100,7 @@ export function createLocalApiService(options = {}) {
 
         const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
         const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
+        const pullRequestState = readGitHubPullRequestState({ issue, workspace, clock });
 
         return buildIssueResponse({
           issue,
@@ -108,7 +113,8 @@ export function createLocalApiService(options = {}) {
           ),
           projectConfigAdapter,
           workspaceAdapter,
-          symphonyState
+          symphonyState,
+          pullRequestState
         });
       }
 
@@ -137,6 +143,7 @@ export function createLocalApiService(options = {}) {
 
         const workspace = unavailableWorkspaceState(issueId, workspaceAdapter);
         const symphonyState = await readSymphonyState({ issueId, issue, workspace, clock });
+        const pullRequestState = readGitHubPullRequestState({ issue, workspace, clock });
 
         return buildIssueResponse({
           issue,
@@ -149,7 +156,8 @@ export function createLocalApiService(options = {}) {
           ),
           projectConfigAdapter,
           workspaceAdapter,
-          symphonyState
+          symphonyState,
+          pullRequestState
         });
       }
 
@@ -170,6 +178,11 @@ export function createLocalApiService(options = {}) {
         workspace: workspaceState.workspace,
         clock
       });
+      const pullRequestState = readGitHubPullRequestState({
+        issue,
+        workspace: workspaceState.workspace,
+        clock
+      });
 
       return buildIssueResponse({
         issue,
@@ -178,7 +191,8 @@ export function createLocalApiService(options = {}) {
         gitAdapter: workspaceState.gitAdapter,
         projectConfigAdapter,
         workspaceAdapter: workspaceState.adapter,
-        symphonyState
+        symphonyState,
+        pullRequestState
       });
     },
 
@@ -266,11 +280,12 @@ function buildIssueResponse({
   gitAdapter,
   projectConfigAdapter,
   workspaceAdapter,
-  symphonyState
+  symphonyState,
+  pullRequestState
 }) {
   const runnerStates = buildRunnerStates(symphonyState);
   const reviewStates = buildReviewStates(project);
-  const pullRequestStates = buildPullRequestStates();
+  const pullRequestStates = buildPullRequestStates(pullRequestState);
 
   return {
     apiVersion: LOCAL_API_VERSION,
@@ -550,9 +565,9 @@ function buildReviewStates(project) {
   ];
 }
 
-function buildPullRequestStates() {
+function buildPullRequestStates(pullRequestState) {
   return [
-    {
+    pullRequestState ?? {
       provider: "GitHub",
       status: "unavailable",
       detail: "GitHub PR and checks sync is not connected yet.",

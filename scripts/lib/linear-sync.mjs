@@ -38,6 +38,7 @@ const LINEAR_ISSUE_DETAILS_QUERY = `
       priority
       priorityLabel
       updatedAt
+      branchName
       state { id name type }
       labels(first: 50) { nodes { id name } }
       parent { id identifier title url }
@@ -271,6 +272,7 @@ export function linearIssueFromCachedRecord(record, options = {}) {
     url: record.linearUrl,
     priority: record.priority,
     priorityLabel: metadata.priorityLabel,
+    branchName: metadata.branchName,
     labels: metadata.labels ?? [],
     parent: metadata.parent,
     blockers: metadata.blockers ?? [],
@@ -382,6 +384,7 @@ function issueCachePayload(projectId, issue, fetchedAt, staleAfterMs) {
       updatedAt: issue.updatedAt,
       statusType: issue.state?.type,
       stateId: issue.state?.id,
+      branchName: issue.branchName,
       priorityLabel: issue.priorityLabel,
       labels: connectionNodes(issue.labels).map(normalizeLabel),
       parent: issue.parent ? normalizeRelatedIssue(issue.parent) : undefined,

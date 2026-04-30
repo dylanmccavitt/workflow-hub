@@ -672,6 +672,156 @@ dd {
   color: #b9baad;
 }
 
+.review-line a,
+.pr-link,
+.check-row a,
+.review-comment-row {
+  color: #72a7ff;
+  text-decoration: none;
+}
+
+.review-line a:hover,
+.pr-link:hover,
+.check-row a:hover,
+.review-comment-row:hover {
+  text-decoration: underline;
+}
+
+.pr-section {
+  display: grid;
+  gap: 12px;
+}
+
+.pr-link {
+  display: block;
+  color: #f5f0e6;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pr-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  color: #d9d4c8;
+  background: #181a15;
+}
+
+.pr-health span,
+.pr-health strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pr-health.success {
+  border-color: #425936;
+  color: #9ec27f;
+  background: #172015;
+}
+
+.pr-health.warning {
+  border-color: #5b482d;
+  color: #f2b66d;
+  background: #211b11;
+}
+
+.pr-health.danger {
+  border-color: #63352e;
+  color: #ff9f8f;
+  background: #251613;
+}
+
+.pr-subsection {
+  display: grid;
+  gap: 8px;
+}
+
+.pr-subsection h3 {
+  color: #f5f0e6;
+  font-size: 13px;
+}
+
+.pr-subsection > p {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.check-list,
+.review-comment-list {
+  display: grid;
+  gap: 8px;
+}
+
+.check-row,
+.review-comment-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #151712;
+}
+
+.check-row.failing {
+  border-color: #63352e;
+  background: #211512;
+}
+
+.check-row-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.check-row-main span,
+.check-row-main a,
+.review-comment-row strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.check-row-main p,
+.annotation-list p,
+.review-comment-row span {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.check-row-main strong {
+  color: #ff9f8f;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.annotation-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #3a251f;
+}
+
+.annotation-list p,
+.review-comment-row {
+  overflow-wrap: anywhere;
+}
+
+.annotation-list span {
+  display: block;
+  margin-bottom: 2px;
+  color: #ffbfad;
+  font-weight: 700;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

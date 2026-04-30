@@ -14,7 +14,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 
 ## Major Components
 
-- `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary.
+- `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
 - `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
 - `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, and PR state contracts. It owns project config reads, scoped git probes, and unavailable-adapter responses.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
@@ -33,7 +33,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - Symphony remains the source of truth for Symphony workflow queue and dispatch decisions.
 - Cursor SDK and Codex are runner backends, not durable planning databases.
 - Workflow Hub displays and orchestrates these systems; it should not replace them.
-- The renderer consumes typed local API responses only. Shell commands, project config reads, SQLite access, and provider adapters stay in the Electron main/local service boundary.
+- The renderer consumes typed local API responses only. Shell commands, project config reads, SQLite access, and provider adapters stay behind the Electron main/local service boundary; Electron may delegate native-backed reads to the repo CLI instead of importing those modules in-process.
 
 ## Main Flows
 

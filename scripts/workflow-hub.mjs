@@ -17,12 +17,16 @@ import {
 import {
   syncLinearProjectIssues
 } from "./lib/linear-sync.mjs";
+import {
+  createLocalApiService
+} from "./lib/local-api-service.mjs";
 
 function usage() {
   console.log(`workflow-hub
 
 Usage:
   npm run workflow -- config [--json]
+  npm run workflow -- api-state [ISSUE_ID] --json
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
@@ -133,6 +137,20 @@ function selectIssueId(rawIssueId, registry) {
   }
 
   throw new Error("No ISSUE_ID provided and current directory is not inside a configured issue worktree.");
+}
+
+async function apiState(args) {
+  const registry = readProjectConfig();
+  const { issueId: rawIssueId, flag } = parseIssueAndFlag(args, "--json");
+
+  if (flag !== "--json") {
+    throw new Error(`Unknown api-state flag: ${flag}`);
+  }
+
+  const issueId = selectIssueId(rawIssueId, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.getIssueState(issueId);
+  console.log(JSON.stringify(payload, null, 2));
 }
 
 function requireResolvedWorkspace(issueId, registry) {
@@ -294,6 +312,11 @@ try {
 
   if (command === "linear-sync") {
     await linearSync(args[0], args[1]);
+    process.exit(0);
+  }
+
+  if (command === "api-state") {
+    await apiState(args);
     process.exit(0);
   }
 

@@ -16,11 +16,11 @@ The app needs local project config reads, scoped git probes, SQLite cache access
 
 ## Tradeoffs
 
-The main-process service keeps the first slice small and avoids another process supervisor, but it still shares the Electron app lifecycle. A standalone daemon may become useful when background runs need to continue after the window closes.
+The main-process service keeps the first slice small and avoids another process supervisor, but it still shares the Electron app lifecycle. Native Node modules should stay in the system Node runtime, so the main process may delegate read commands to the repo CLI instead of importing native-backed modules directly. A standalone daemon may become useful when background runs need to continue after the window closes.
 
 ## Consequences
 
 - The renderer consumes `workflowHub.issues.getState(issueId)` instead of arbitrary IPC, filesystem, shell, or database access.
-- Project config reads and git probes happen in Node-side service code.
+- Project config reads, git probes, and SQLite cache reads happen in Node-side service code behind the main-process IPC boundary.
 - Linear, Symphony, Codex, Cursor SDK, PR, and review integrations return explicit unavailable adapter state until their owned issues wire real adapters.
 - Risky actions remain future explicit API calls rather than implicit renderer permissions.

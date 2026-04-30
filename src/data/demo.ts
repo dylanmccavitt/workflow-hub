@@ -51,6 +51,20 @@ export const issues: IssueCard[] = [
     summary: "Turns project config into openable issue workspaces for editor, terminal, Xcode, and review."
   },
   {
+    id: "AGE-354",
+    title: "Issue, project, and workpad sync",
+    repo: "workflow-hub",
+    status: "Needs Fixes",
+    runner: "Codex",
+    branch: "feat/age-354-linear-sync",
+    worktree: "/Users/dylanmccavitt/.codex/symphony-workspaces/workflow-hub/AGE-354",
+    lastEvent: "PR #6 is open for review with Linear cache data available",
+    buildTarget: "None",
+    risk: "medium",
+    phase: "Workflow Visibility",
+    summary: "Pulls Linear metadata, linked PRs, blockers, labels, and Codex Workpad content into the local model."
+  },
+  {
     id: "AGE-356",
     title: "Symphony state discovery and adapter",
     repo: "workflow-hub",

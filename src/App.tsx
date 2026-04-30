@@ -55,8 +55,6 @@ const statuses: IssueStatus[] = [
   "Done"
 ];
 
-const selected = issues[0];
-
 function classNameFor(value: string) {
   return value.toLowerCase().replace(/[ /]+/g, "-");
 }
@@ -127,8 +125,8 @@ function cacheText(issueState: WorkflowIssueState | undefined) {
   const cache = issueState?.issue.linear?.cache ?? issueState?.issue.cache;
   if (!cache) return issueState?.issue.adapter.detail ?? "Waiting for Linear";
 
-  const staleLabel = cache.stale ? " stale" : "";
-  return `${labelForStatus(cache.status)}${staleLabel}`;
+  if (cache.status === "stale") return "Stale";
+  return cache.stale ? `${labelForStatus(cache.status)} stale` : labelForStatus(cache.status);
 }
 
 function formatTimestamp(value: string) {
@@ -157,9 +155,22 @@ function ToneIcon({ tone }: { tone: Tone }) {
   return <CircleDot size={18} />;
 }
 
-function IssueRow({ issue, active = false }: { issue: IssueCard; active?: boolean }) {
+function IssueRow({
+  issue,
+  active = false,
+  onSelect
+}: {
+  issue: IssueCard;
+  active?: boolean;
+  onSelect: (issueId: string) => void;
+}) {
   return (
-    <button className={`issue-row ${active ? "active" : ""}`} type="button">
+    <button
+      aria-pressed={active}
+      className={`issue-row ${active ? "active" : ""}`}
+      onClick={() => onSelect(issue.id)}
+      type="button"
+    >
       <span className="issue-row-top">
         <span className="issue-id">{issue.id}</span>
         <StatusPill status={issue.status} />
@@ -173,6 +184,14 @@ function IssueRow({ issue, active = false }: { issue: IssueCard; active?: boolea
       </span>
     </button>
   );
+}
+
+function initialSelectedIssueId() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedIssueId = params.get("issue")?.toUpperCase();
+  return issues.some((issue) => issue.id === requestedIssueId)
+    ? requestedIssueId
+    : issues[0].id;
 }
 
 function ActionButton({
@@ -301,11 +320,19 @@ function RunnerRow({ runner }: { runner: RunnerBackend }) {
 }
 
 export function App() {
+  const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
+  const selected = useMemo(
+    () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
+    [selectedIssueId]
+  );
 
   useEffect(() => {
     let isActive = true;
+
+    setIssueState(undefined);
+    setApiError(undefined);
 
     if (!window.workflowHub?.issues?.getState) {
       setApiError("Desktop API unavailable in renderer preview");
@@ -326,7 +353,7 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [selected.id]);
 
   const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
   const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
@@ -396,7 +423,12 @@ export function App() {
 
         <section className="issue-list" aria-label="Issues">
           {issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} active={issue.id === selected.id} />
+            <IssueRow
+              key={issue.id}
+              issue={issue}
+              active={issue.id === selected.id}
+              onSelect={setSelectedIssueId}
+            />
           ))}
         </section>
       </aside>

@@ -11,7 +11,7 @@ This repo is wired for the local Symphony Elixir runner through the root `WORKFL
 
 Optional:
 
-- Set `WORKFLOW_HUB_REPO_URL` if Symphony should clone from a Git remote instead of the local canonical checkout.
+- Set `WORKFLOW_HUB_REPO_URL` only if Symphony should clone from a different Git remote.
 - Set `SYMPHONY_PORT`, `SYMPHONY_LOGS_ROOT`, `SYMPHONY_DIR`, or `WORKFLOW_HUB_WORKFLOW_FILE` to override the defaults in `scripts/symphony/start`.
 
 ## Start
@@ -54,8 +54,8 @@ Terminal states:
 
 Use Linear state to control dispatch. Comments are context only unless they use the configured `symphony:` trigger in a review state.
 
-## Current Repo Caveat
+## GitHub Remote
 
-This repo currently has no `origin` remote configured. Symphony can still create issue workspaces by cloning the local canonical checkout, but agents cannot push or open PRs until a remote is added or `WORKFLOW_HUB_REPO_URL` points at one.
+The default Symphony clone target is `git@github.com:DylanMcCavitt/workflow-hub.git`.
 
-When no remote exists, agents should commit locally in the issue workspace, update the Linear workpad and repo handoff, and record push/PR as blocked by the missing remote instead of pretending the review path is complete.
+Issue workspaces should push branches to that remote and open PRs from those branches so GitHub and Linear can populate review state.

@@ -10,6 +10,8 @@ Workflow Hub now has a runnable Symphony control surface:
 - Codex runs through `/opt/homebrew/bin/codex --config shell_environment_policy.inherit=all app-server`.
 - Codex policy is configured as `approval_policy: never`, `thread_sandbox: danger-full-access`, and `turn_sandbox_policy.type: dangerFullAccess`.
 - `scripts/symphony/start` includes the required `--i-understand-that-this-will-be-running-without-the-usual-guardrails` flag.
+- GitHub remote is now `git@github.com:DylanMcCavitt/workflow-hub.git`.
+- Symphony clones new issue workspaces from that GitHub remote by default.
 
 ## Next
 
@@ -24,7 +26,7 @@ The dashboard/API defaults to `http://127.0.0.1:4002`.
 
 ## Risks
 
-- This repo currently has no `origin` remote configured. Symphony can clone the local canonical checkout, but agents cannot push or open PRs until a remote is added or `WORKFLOW_HUB_REPO_URL` points to one.
+- GitHub/Linear PR population still depends on each Symphony agent pushing its issue branch, opening a PR, and linking or mentioning the Linear issue.
 - `node_modules/` is not installed in this worktree. Dependency-backed checks such as `npm run typecheck` and `npm run build` were not run.
 - Starting Symphony while `AGE-347` is `Ready` will let it begin the first issue.
 

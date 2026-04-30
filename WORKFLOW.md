@@ -27,7 +27,7 @@ workspace:
   root: /Users/dylanmccavitt/.codex/symphony-workspaces/workflow-hub
 hooks:
   after_create: |
-    git clone "${WORKFLOW_HUB_REPO_URL:-/Users/dylanmccavitt/projects/workflow-hub}" .
+    git clone "${WORKFLOW_HUB_REPO_URL:-git@github.com:DylanMcCavitt/workflow-hub.git}" .
     if git remote get-url origin >/dev/null 2>&1; then
       git fetch origin main --prune || true
     fi
@@ -157,7 +157,7 @@ For UI-facing or workflow-facing changes, include a manual review path in the ac
 ## Execution Rules
 
 1. Reproduce or inspect current behavior before changing code when the issue is a bug, regression, or review fix.
-2. Sync with `origin/main` before edits when a remote exists. If this repo still has no remote configured, branch from the local canonical `main` and record the missing remote as a PR/push blocker.
+2. Sync with `origin/main` before edits. If the remote is unexpectedly unavailable, record that as a PR/push blocker instead of pretending review is complete.
 3. Use one issue branch and one issue workspace. Branch names should be shaped like `feat/<issue-id>-short-scope` unless continuing an attached PR branch.
 4. Keep scope inside the issue owned paths. If an out-of-scope problem appears, create or recommend a follow-up Linear issue instead of widening the PR.
 5. Use TypeScript for renderer code. Keep Electron main/preload code small and security-oriented.
@@ -188,7 +188,7 @@ If dependencies are not installed, install with `npm install` only when required
 
 Move to `Human Review` only when:
 
-- PR is open or the missing remote blocker is explicitly documented.
+- PR is open or a concrete remote/push blocker is explicitly documented.
 - Workpad is current.
 - Acceptance criteria are checked or explicitly blocked.
 - Required validation has been run or the blocker is documented.

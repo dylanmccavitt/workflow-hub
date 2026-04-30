@@ -1,57 +1,46 @@
 #!/usr/bin/env node
-import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-
-const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
-const configPath = path.join(repoRoot, "config", "projects.json");
-const exampleConfigPath = path.join(repoRoot, "config", "projects.example.json");
-
-function readConfig() {
-  const target = fs.existsSync(configPath) ? configPath : exampleConfigPath;
-  return JSON.parse(fs.readFileSync(target, "utf8"));
-}
+import {
+  derivedDataPath,
+  findWorkspace,
+  readProjectConfig,
+  requireIosConfig,
+  xcodeTargetArgs
+} from "./lib/project-config.mjs";
 
 function usage() {
   console.log(`workflow-hub
 
 Usage:
+  npm run workflow -- config [--json]
   npm run workflow -- status ISSUE_ID
   npm run workflow -- open ISSUE_ID --zed|--xcode|--finder|--terminal|--print
   npm run workflow -- review ISSUE_ID --sim|--device
 `);
 }
 
-function findWorkspace(issueId) {
-  const config = readConfig();
-  const candidates = [];
-
-  for (const project of config.projects) {
-    for (const root of project.workspaceRoots ?? []) {
-      if (!fs.existsSync(root)) continue;
-
-      const direct = path.join(root, issueId);
-      if (fs.existsSync(direct)) {
-        candidates.push({ project, path: direct });
-      }
-
-      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const fullPath = path.join(root, entry.name);
-        if (entry.name.toLowerCase().includes(issueId.toLowerCase())) {
-          candidates.push({ project, path: fullPath });
-        }
-      }
-    }
-  }
-
-  return candidates[0];
-}
-
 function runOpen(appName, targetPath) {
   const args = appName ? ["-a", appName, targetPath] : [targetPath];
   const result = spawnSync("open", args, { stdio: "inherit" });
   process.exit(result.status ?? 1);
+}
+
+function printConfig(flag) {
+  const registry = readProjectConfig();
+
+  if (flag === "--json") {
+    console.log(JSON.stringify(registry, null, 2));
+    return;
+  }
+
+  console.log([
+    `Loaded ${registry.projects.length} project(s).`,
+    `Tracked config: ${registry.source.trackedConfigPath}`,
+    registry.source.localConfigPath
+      ? `Local overrides: ${registry.source.localConfigPath}`
+      : "Local overrides: config/projects.json not found"
+  ].join("\n"));
 }
 
 function status(issueId) {
@@ -95,8 +84,9 @@ function openWorkspace(issueId, flag) {
   }
 
   if (flag === "--xcode") {
-    const project = match.project.xcode?.project;
-    runOpen("Xcode", project ? path.join(match.path, project) : match.path);
+    const ios = requireIosConfig(match.project);
+    const target = ios.workspacePath ?? ios.projectPath;
+    runOpen("Xcode", path.join(match.path, target));
   }
 
   if (flag === "--finder") {
@@ -118,15 +108,16 @@ function review(issueId, flag) {
     process.exit(1);
   }
 
-  const xcode = match.project.xcode ?? {};
-  const derivedData = path.join("/tmp", `WorkflowHubDerivedData-${issueId}`);
+  const ios = requireIosConfig(match.project);
+  const derivedData = derivedDataPath(match.project, issueId);
+  const xcodeArgs = xcodeTargetArgs(ios).join(" ");
 
   if (flag === "--sim") {
     console.log([
       "Simulator review command draft:",
       `cd ${match.path}`,
-      `xcodebuild -project ${xcode.project} -scheme ${xcode.scheme} -destination 'platform=iOS Simulator,name=${xcode.simulatorName}' -derivedDataPath ${derivedData} build`,
-      `xcrun simctl launch booted ${xcode.bundleId}`
+      `xcodebuild ${xcodeArgs} -scheme ${ios.scheme} -destination 'platform=iOS Simulator,name=${ios.simulatorName}' -derivedDataPath ${derivedData} build`,
+      `xcrun simctl launch booted ${ios.bundleId}`
     ].join("\n"));
     return;
   }
@@ -134,7 +125,7 @@ function review(issueId, flag) {
   if (flag === "--device") {
     console.log([
       "Device review starts in Xcode because signing and device trust are local Apple state:",
-      `open -a Xcode ${path.join(match.path, xcode.project ?? "")}`
+      `open -a Xcode ${path.join(match.path, ios.workspacePath ?? ios.projectPath)}`
     ].join("\n"));
     return;
   }
@@ -145,14 +136,40 @@ function review(issueId, flag) {
 
 const [command, issueId, flag] = process.argv.slice(2);
 
-if (!command || !issueId) {
+if (!command) {
   usage();
-  process.exit(command ? 1 : 0);
+  process.exit(0);
 }
 
-if (command === "status") status(issueId);
-if (command === "open") openWorkspace(issueId, flag ?? "--print");
-if (command === "review") review(issueId, flag ?? "--sim");
+try {
+  if (command === "config") {
+    printConfig(issueId);
+    process.exit(0);
+  }
+
+  if (!issueId) {
+    usage();
+    process.exit(1);
+  }
+
+  if (command === "status") {
+    status(issueId);
+    process.exit(0);
+  }
+
+  if (command === "open") {
+    openWorkspace(issueId, flag ?? "--print");
+    process.exit(0);
+  }
+
+  if (command === "review") {
+    review(issueId, flag ?? "--sim");
+    process.exit(0);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
 
 usage();
 process.exit(1);

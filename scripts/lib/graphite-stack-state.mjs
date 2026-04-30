@@ -432,12 +432,18 @@ function graphiteDeepLink({ repository, number }) {
 
 function graphiteInitialized(cwd, gitRunner) {
   const gitDirResult = gitRunner(["rev-parse", "--git-dir"], cwd);
-  if (!gitDirResult.ok) return false;
+  const commonGitDirResult = gitRunner(["rev-parse", "--git-common-dir"], cwd);
+  const gitDirs = [gitDirResult, commonGitDirResult]
+    .filter((result) => result.ok)
+    .map((result) => resolveGitPath(cwd, result.stdout));
 
-  const gitDir = path.isAbsolute(gitDirResult.stdout)
-    ? gitDirResult.stdout
-    : path.resolve(cwd, gitDirResult.stdout);
-  return fs.existsSync(path.join(gitDir, ".graphite_repo_config"));
+  return gitDirs.some((gitDir) => fs.existsSync(path.join(gitDir, ".graphite_repo_config")));
+}
+
+function resolveGitPath(cwd, value) {
+  return path.isAbsolute(value)
+    ? value
+    : path.resolve(cwd, value);
 }
 
 function runGraphiteText(args, graphiteRunner, cwd) {

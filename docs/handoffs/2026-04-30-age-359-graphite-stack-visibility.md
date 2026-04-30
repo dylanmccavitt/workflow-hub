@@ -60,7 +60,7 @@ Open `AGE-359` and confirm the inspector shows both GitHub PR fallback state and
 ## Review Notes
 
 - `api-state AGE-359` now returns both `pullRequests[0].provider: "GitHub"` and `pullRequests[1].provider: "Graphite"`.
-- With the current untracked branch, GitHub reports `not-found` and Graphite reports `not-found` with a Graphite deep link, preserving fallback behavior.
+- With the current untracked branch, GitHub resolves PR #10 as `available` and Graphite reports `not-found` with a Graphite deep link, preserving fallback behavior.
 - `api-state AGE-358` still resolves the merged GitHub PR #9 as `available`, while Graphite separately falls back to the Graphite PR deep link because that completed issue workspace is gone.
 - Electron smoke launched `AGE-359` successfully; the dev process was stopped after startup validation.
 - The Graphite adapter remains read-only and does not create PRs, submit stacks, merge stacks, initialize Graphite, or open Graphite UI directly.

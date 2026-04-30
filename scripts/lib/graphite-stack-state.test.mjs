@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   parseGraphiteLog,
@@ -151,6 +154,47 @@ test("does not run stack commands when Graphite is not initialized", () => {
   assert.equal(state.status, "not-configured");
   assert.match(state.detail, /not initialized/);
   assert.deepEqual(calls, ["--version"]);
+});
+
+test("detects Graphite initialization from a linked worktree common git dir", (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-hub-graphite-"));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+
+  const cwd = path.join(tempRoot, "worktree");
+  const gitDir = path.join(tempRoot, "canonical", ".git", "worktrees", "age-359");
+  const commonGitDir = path.join(tempRoot, "canonical", ".git");
+  fs.mkdirSync(cwd, { recursive: true });
+  fs.mkdirSync(gitDir, { recursive: true });
+  fs.mkdirSync(commonGitDir, { recursive: true });
+  fs.writeFileSync(path.join(commonGitDir, ".graphite_repo_config"), "{}\n");
+
+  const calls = [];
+  const state = readGraphiteStackState({
+    workspace: {
+      path: cwd,
+      branch: "feat/age-359-graphite-stack-visibility",
+      remote: "git@github.com:DylanMcCavitt/workflow-hub.git"
+    },
+    gitRunner: (args) => {
+      const command = args.join(" ");
+      if (command === "rev-parse --git-dir") return { ok: true, stdout: gitDir };
+      if (command === "rev-parse --git-common-dir") return { ok: true, stdout: commonGitDir };
+      return { ok: false, error: `unexpected git command ${command}` };
+    },
+    graphiteRunner: (args) => {
+      const command = args.join(" ");
+      calls.push(command);
+      if (command === "--version") return { ok: true, stdout: "1.8.5" };
+      return {
+        ok: false,
+        error: "ERROR: Cannot perform this operation on untracked branch feat/age-359-graphite-stack-visibility."
+      };
+    }
+  });
+
+  assert.equal(state.status, "not-found");
+  assert.match(state.detail, /not tracked/);
+  assert.equal(calls.includes("log --stack --no-interactive"), true);
 });
 
 test("reports untracked Graphite branches as not-found with a deep link", () => {

@@ -262,9 +262,37 @@ function IssueRow({
 function initialSelectedIssueId() {
   const params = new URLSearchParams(window.location.search);
   const requestedIssueId = params.get("issue")?.toUpperCase();
-  return issues.some((issue) => issue.id === requestedIssueId)
+  return requestedIssueId && /^[a-z]+-\d+$/i.test(requestedIssueId)
     ? requestedIssueId
     : issues[0].id;
+}
+
+function issueCardFromState(issueId: string, issueState: WorkflowIssueState | undefined): IssueCard {
+  const linearIssue = issueState?.issue.linear;
+  const workspace = issueState?.workspace;
+  const pullRequest = issueState?.pullRequests[0];
+  const summary = pullRequest?.detail
+    ?? workspace?.adapter.detail
+    ?? issueState?.issue.adapter.detail
+    ?? "Dynamic issue loaded from the local workflow API.";
+
+  return {
+    id: issueId,
+    title: linearIssue?.title ?? "Loading issue state",
+    repo: issueState?.project.displayName ?? "workflow-hub",
+    status: issueStatusFromLinear(linearIssue?.status, "Backlog"),
+    runner: "Codex",
+    branch: workspace?.branch ?? "Resolving branch",
+    worktree: workspace?.path ?? "Resolving issue workspace",
+    pr: pullRequest?.pullRequest
+      ? `#${pullRequest.pullRequest.number} ${pullRequest.pullRequest.title}`
+      : undefined,
+    lastEvent: pullRequest?.detail ?? issueState?.issue.adapter.detail ?? "Loading local API state",
+    buildTarget: "None",
+    risk: "medium",
+    phase: "Workflow Visibility",
+    summary
+  };
 }
 
 function ActionButton({
@@ -662,22 +690,28 @@ export function App() {
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
   const selected = useMemo(
-    () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
-    [selectedIssueId]
+    () => issues.find((issue) => issue.id === selectedIssueId) ?? issueCardFromState(selectedIssueId, issueState),
+    [issueState, selectedIssueId]
   );
   const linearIssue = issueState?.issue.linear;
   const sidebarIssues = useMemo(
-    () => issues.map((issue) => {
-      if (issue.id !== selected.id || !linearIssue) return issue;
+    () => {
+      const listedIssues = issues.some((issue) => issue.id === selected.id)
+        ? issues
+        : [selected, ...issues];
 
-      return {
-        ...issue,
-        title: linearIssue.title,
-        status: issueStatusFromLinear(linearIssue.status, issue.status),
-        pr: linearIssue.pullRequests[0]?.title ?? issue.pr
-      };
-    }),
-    [linearIssue, selected.id]
+      return listedIssues.map((issue) => {
+        if (issue.id !== selected.id || !linearIssue) return issue;
+
+        return {
+          ...issue,
+          title: linearIssue.title,
+          status: issueStatusFromLinear(linearIssue.status, issue.status),
+          pr: linearIssue.pullRequests[0]?.title ?? issue.pr
+        };
+      });
+    },
+    [linearIssue, selected]
   );
 
   const refreshIssueState = useCallback(async () => {

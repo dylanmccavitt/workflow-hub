@@ -8,6 +8,8 @@ Implemented a read-only GitHub PR adapter behind the local API boundary. The ada
 
 The renderer inspector now has a GitHub PR panel for PR health, review decision, merge state, branch/head, failing checks with annotations, latest review comments, and direct links back to GitHub.
 
+Review follow-up fixed the desktop startup path so a valid `?issue=AGE-358` target is loaded even when the issue is not present in the static demo issue list.
+
 PR: https://github.com/DylanMcCavitt/workflow-hub/pull/9
 
 ## Next
@@ -60,10 +62,12 @@ Open `AGE-358` and confirm the GitHub PR inspector panel shows PR status, checks
 - `npm run workflow -- api-state AGE-358 --json`
 - `npm run workflow -- api-state AGE-356 --json`
 - `WORKFLOW_HUB_ISSUE_ID=AGE-356 npm run dev`
+- `WORKFLOW_HUB_ISSUE_ID=AGE-358 npm run dev`
 
 ## Review Notes
 
 - `api-state AGE-358` resolved PR #9 with GitHub PR status `available`, state `OPEN`, merge state `CLEAN`, review `UNKNOWN`, checks `none`, and the Linear linkback comment.
 - `api-state AGE-356` resolved Linear PR attachment `#8`, returned GitHub PR status `available`, included the GitHub URL, and surfaced the latest GitHub/Linear linkback comment.
 - Electron smoke loaded `AGE-356` through the desktop bridge and showed the GitHub PR panel with PR #8, merged state, check counts, review comment, and GitHub link.
+- Electron review now loads `AGE-358` directly through `http://127.0.0.1:5173/?issue=AGE-358`, shows the dynamic AGE-358 issue row, and shows PR #9 in the GitHub PR inspector matched by Linear PR URL.
 - No GitHub comments, reviews, merges, or status mutations are performed by the adapter.

@@ -8,6 +8,7 @@ const localApiModuleUrl = pathToFileURL(
 ).href;
 let localApiServicePromise;
 
+<<<<<<< HEAD
 async function getLocalApiService() {
   if (!localApiServicePromise) {
     localApiServicePromise = import(localApiModuleUrl)
@@ -21,6 +22,41 @@ ipcMain.handle("workflow-hub:get-issue-state", async (_event, issueId) => {
   const localApiService = await getLocalApiService();
   return localApiService.getIssueState(issueId);
 });
+=======
+async function resolveIssueWorkspace(_event, inputIssueId) {
+  const {
+    normalizeIssueId,
+    resolveIssueWorkspace: resolveWorkspaceFromConfig
+  } = await import(projectConfigModuleUrl);
+  const issueId = normalizeIssueId(inputIssueId);
+  const resolved = resolveWorkspaceFromConfig(issueId);
+
+  if (!resolved.found) {
+    return {
+      issueId,
+      found: false
+    };
+  }
+
+  return {
+    issueId,
+    found: true,
+    projectId: resolved.project.id,
+    projectName: resolved.project.displayName,
+    canonicalPath: resolved.canonical.path,
+    canonicalBranch: resolved.canonical.branch,
+    canonicalDirty: resolved.canonical.dirty,
+    path: resolved.workspace.path,
+    branch: resolved.workspace.branch,
+    headSha: resolved.workspace.headSha,
+    remote: resolved.workspace.remote,
+    dirty: resolved.workspace.dirty,
+    gitStatus: resolved.workspace.statusLines
+  };
+}
+
+ipcMain.handle("workflow-hub:resolve-issue-workspace", resolveIssueWorkspace);
+>>>>>>> 6e3f02e ([age-350]: add issue workspace resolver)
 
 function createWindow() {
   const mainWindow = new BrowserWindow({

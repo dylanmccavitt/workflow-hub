@@ -8,6 +8,8 @@ Workflow Hub now exposes explicit Linear status actions for Ready, In Progress, 
 
 The write adapter updates Linear issue state, merges structured updates into the persistent `## Codex Workpad` comment without replacing unrelated sections or notes, and records successful or failed write attempts in the local registry event store. The issue state API returns those events, and the renderer prepends them to the local timeline.
 
+Review fix: the selected issue row and sidebar state counts now reflect the live selected Linear issue after local API data loads. The broader sidebar issue set is still static demo data until AGE-366 replaces the main dashboard with local API data.
+
 ## Next
 
 Open the PR and review the status action flow in Electron:
@@ -64,3 +66,8 @@ Open the PR and review the status action flow in Electron:
 
 - Browser preview at `http://127.0.0.1:5173/?issue=AGE-355` renders the AGE-355 action panel but disables writes because the desktop bridge is unavailable.
 - Electron smoke loaded live Linear data, resolved the AGE-355 workspace, showed all seven status actions enabled, and showed the Human Review confirmation boundary with Apply disabled until confirmation. The check was canceled before any Linear write.
+- Review/debug pass reproduced a stale native `better-sqlite3` ABI in this worktree; `npm rebuild better-sqlite3` fixed local API reads for Node 25. This was a local dependency rebuild, not a tracked code change.
+- Live Electron review on `http://127.0.0.1:5173/?issue=AGE-355` showed AGE-355 selected, Linear status `Human Review`, priority `High`, blockers, Workpad, PR attachment, and cache `Fresh`.
+- The sidebar row/counts initially remained static after live issue load; patched `src/App.tsx` so the selected issue row and state counts mirror the selected Linear issue. Full all-issue sidebar sync remains AGE-366.
+- Confirmation smoke selected `Needs Fixes`, verified the confirmation panel and disabled Apply until the checkbox was selected, then canceled without applying a real Linear write.
+- Review/debug checks: `npm run typecheck`; `npm run test`; `npm run build`; `git diff --check`; `npm run workflow -- api-state AGE-355 --json`.

@@ -129,6 +129,10 @@ function labelsText(linearIssue: LinearIssueDetails | undefined) {
   return linearIssue?.labels.length ? linearIssue.labels.map((label) => label.name).join(", ") : "None";
 }
 
+function issueStatusFromLinear(status: string | undefined, fallback: IssueStatus): IssueStatus {
+  return statuses.includes(status as IssueStatus) ? status as IssueStatus : fallback;
+}
+
 function workpadText(linearIssue: LinearIssueDetails | undefined) {
   if (!linearIssue?.codexWorkpad) return "Not found";
   return linearIssue.codexWorkpad.updatedAt
@@ -488,6 +492,20 @@ export function App() {
     () => issues.find((issue) => issue.id === selectedIssueId) ?? issues[0],
     [selectedIssueId]
   );
+  const linearIssue = issueState?.issue.linear;
+  const sidebarIssues = useMemo(
+    () => issues.map((issue) => {
+      if (issue.id !== selected.id || !linearIssue) return issue;
+
+      return {
+        ...issue,
+        title: linearIssue.title,
+        status: issueStatusFromLinear(linearIssue.status, issue.status),
+        pr: linearIssue.pullRequests[0]?.title ?? issue.pr
+      };
+    }),
+    [linearIssue, selected.id]
+  );
 
   const refreshIssueState = useCallback(async () => {
     setIssueState(undefined);
@@ -513,7 +531,6 @@ export function App() {
 
   const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
   const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
-  const linearIssue = issueState?.issue.linear;
   const displayTitle = linearIssue?.title ?? selected.title;
   const displayStatus = linearIssue?.status ?? selected.status;
   const displayProject = issueState?.project.displayName ?? selected.repo;
@@ -604,7 +621,7 @@ export function App() {
 
         <section className="state-groups" aria-label="Issue states">
           {statuses.map((status) => {
-            const count = issues.filter((issue) => issue.status === status).length;
+            const count = sidebarIssues.filter((issue) => issue.status === status).length;
             return (
               <button key={status} className="state-row" type="button">
                 <span>{status}</span>
@@ -615,7 +632,7 @@ export function App() {
         </section>
 
         <section className="issue-list" aria-label="Issues">
-          {issues.map((issue) => (
+          {sidebarIssues.map((issue) => (
             <IssueRow
               key={issue.id}
               issue={issue}

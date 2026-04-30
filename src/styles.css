@@ -617,3 +617,15 @@ dd {
   color: #72a7ff;
   font-size: 12px;
 }
+
+.signal-row.success strong {
+  color: #9ec27f;
+}
+
+.signal-row.warning strong {
+  color: #f2b66d;
+}
+
+.signal-row.danger strong {
+  color: #ff9f8f;
+}

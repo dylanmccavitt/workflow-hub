@@ -30,12 +30,18 @@ import type {
   DailyFlowStep,
   IssueCard,
   IssueStatus,
-  ResolvedWorkspace,
   RunnerBackend,
   SystemSignal,
   TimelineEvent,
   Tone
 } from "./lib/types";
+import type {
+  AdapterState,
+  PullRequestApiState,
+  ReviewApiState,
+  RunnerApiState,
+  WorkflowIssueState
+} from "./lib/workflowHubApi";
 
 const statuses: IssueStatus[] = [
   "Backlog",
@@ -52,6 +58,48 @@ const selected = issues[0];
 
 function classNameFor(value: string) {
   return value.toLowerCase().replace(/[ /]+/g, "-");
+}
+
+function labelForStatus(value: string) {
+  return value
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function toneForAdapter(adapter: AdapterState): Tone {
+  if (adapter.status === "available") return "success";
+  if (adapter.status === "unavailable") return "danger";
+  if (adapter.status === "not-found") return "warning";
+  return "neutral";
+}
+
+function signalFromAdapter(adapter: AdapterState): SystemSignal {
+  return {
+    label: adapter.label,
+    value: labelForStatus(adapter.status),
+    detail: adapter.ownerIssue ? `${adapter.detail} (${adapter.ownerIssue})` : adapter.detail,
+    tone: toneForAdapter(adapter)
+  };
+}
+
+function runnerFromApiState(runner: RunnerApiState): RunnerBackend {
+  return {
+    name: runner.kind,
+    role: runner.role,
+    state: labelForStatus(runner.status),
+    detail: runner.detail
+  };
+}
+
+function pullRequestLabel(pullRequest: PullRequestApiState | undefined) {
+  if (!pullRequest) return "No PR adapter";
+  return `${pullRequest.provider}: ${labelForStatus(pullRequest.status)}`;
+}
+
+function reviewLabel(review: ReviewApiState | undefined) {
+  if (!review) return undefined;
+  return `${labelForStatus(review.target)} review: ${labelForStatus(review.status)}`;
 }
 
 function StatusPill({ status }: { status: IssueStatus }) {
@@ -105,19 +153,23 @@ function ActionButton({
 
 function ResolutionPanel({
   selectedIssue,
-  resolvedWorkspace
+  issueState,
+  apiError
 }: {
   selectedIssue: IssueCard;
-  resolvedWorkspace: ResolvedWorkspace | undefined;
+  issueState: WorkflowIssueState | undefined;
+  apiError: string | undefined;
 }) {
-  const workspacePath = resolvedWorkspace?.found ? resolvedWorkspace.path : selectedIssue.worktree;
-  const branch = resolvedWorkspace?.found ? resolvedWorkspace.branch : selectedIssue.branch;
-  const headSha = resolvedWorkspace?.found ? resolvedWorkspace.headSha : undefined;
-  const stateLabel = resolvedWorkspace?.found
-    ? resolvedWorkspace.dirty
+  const workspace = issueState?.workspace;
+  const workspacePath = workspace?.found ? workspace.path : selectedIssue.worktree;
+  const branch = workspace?.found ? workspace.branch : selectedIssue.branch;
+  const headSha = workspace?.found ? workspace.headSha : undefined;
+  const stateLabel = apiError
+    ?? (workspace?.found
+    ? workspace.dirty
       ? "Resolved with local changes"
       : "Resolved cleanly"
-    : resolvedWorkspace?.error ?? "Waiting for desktop bridge";
+    : workspace?.adapter.detail ?? "Waiting for local API");
 
   return (
     <section className="resolution-panel" aria-label="Issue resolver">
@@ -208,31 +260,26 @@ function RunnerRow({ runner }: { runner: RunnerBackend }) {
 }
 
 export function App() {
-  const [resolvedWorkspace, setResolvedWorkspace] = useState<ResolvedWorkspace>();
+  const [issueState, setIssueState] = useState<WorkflowIssueState>();
+  const [apiError, setApiError] = useState<string>();
 
   useEffect(() => {
     let isActive = true;
 
-    if (!window.workflowHub?.resolveIssueWorkspace) {
-      setResolvedWorkspace({
-        issueId: selected.id,
-        found: false,
-        error: "Desktop bridge unavailable in renderer preview"
-      });
+    if (!window.workflowHub?.issues?.getState) {
+      setApiError("Desktop API unavailable in renderer preview");
       return;
     }
 
-    window.workflowHub.resolveIssueWorkspace(selected.id)
-      .then((workspace) => {
-        if (isActive) setResolvedWorkspace(workspace);
+    window.workflowHub.issues.getState(selected.id)
+      .then((state) => {
+        if (!isActive) return;
+        setIssueState(state);
+        setApiError(undefined);
       })
       .catch((error: unknown) => {
         if (!isActive) return;
-        setResolvedWorkspace({
-          issueId: selected.id,
-          found: false,
-          error: error instanceof Error ? error.message : String(error)
-        });
+        setApiError(error instanceof Error ? error.message : String(error));
       });
 
     return () => {
@@ -240,8 +287,8 @@ export function App() {
     };
   }, []);
 
-  const workspacePath = resolvedWorkspace?.found ? resolvedWorkspace.path : selected.worktree;
-  const branch = resolvedWorkspace?.found ? resolvedWorkspace.branch : selected.branch;
+  const workspacePath = issueState?.workspace.found ? issueState.workspace.path : selected.worktree;
+  const branch = issueState?.workspace.found ? issueState.workspace.branch : selected.branch;
   const doneCount = useMemo(
     () => acceptanceCriteria.filter((criterion) => criterion.status === "Done").length,
     []
@@ -249,6 +296,16 @@ export function App() {
   const platformLabel = window.workflowHub
     ? `${window.workflowHub.platform} / ${window.workflowHub.version}`
     : "browser preview";
+  const sourceSignals = useMemo(
+    () => issueState ? issueState.adapters.map(signalFromAdapter) : systemSignals,
+    [issueState]
+  );
+  const visibleRunners = useMemo(
+    () => issueState ? issueState.runners.map(runnerFromApiState) : runnerBackends,
+    [issueState]
+  );
+  const pullRequestState = issueState?.pullRequests[0];
+  const reviewState = issueState?.reviews[0];
 
   return (
     <main className="app-shell">
@@ -322,7 +379,7 @@ export function App() {
         </section>
 
         <section className="workspace-content">
-          <ResolutionPanel selectedIssue={selected} resolvedWorkspace={resolvedWorkspace} />
+          <ResolutionPanel selectedIssue={selected} issueState={issueState} apiError={apiError} />
 
           <section className="flow-board" aria-label="Daily workflow">
             <div className="section-heading">
@@ -357,7 +414,7 @@ export function App() {
 
         <footer className="command-bar">
           <Command size={17} />
-          <span>AGE-346 command target: {branch ?? "unresolved branch"}</span>
+          <span>{selected.id} command target: {branch ?? "unresolved branch"}</span>
           <kbd>Cmd K</kbd>
         </footer>
       </section>
@@ -384,7 +441,7 @@ export function App() {
         <section className="inspector-section">
           <h2>Sources</h2>
           <div className="signal-list">
-            {systemSignals.map((signal) => (
+            {sourceSignals.map((signal) => (
               <SystemSignalRow key={signal.label} signal={signal} />
             ))}
           </div>
@@ -392,7 +449,7 @@ export function App() {
 
         <section className="inspector-section">
           <h2>Runners</h2>
-          {runnerBackends.map((runner) => (
+          {visibleRunners.map((runner) => (
             <RunnerRow key={runner.name} runner={runner} />
           ))}
         </section>
@@ -401,11 +458,11 @@ export function App() {
           <h2>Review</h2>
           <div className="review-line">
             <GitPullRequest size={16} />
-            <span>{selected.pr ?? "No PR yet"}</span>
+            <span>{selected.pr ?? pullRequestLabel(pullRequestState)}</span>
           </div>
           <div className="review-line">
             <Workflow size={16} />
-            <span>{selected.lastEvent}</span>
+            <span>{reviewLabel(reviewState) ?? selected.lastEvent}</span>
           </div>
         </section>
       </aside>

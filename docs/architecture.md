@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, and project docs. Adapter and SQLite work is not implemented yet.
+The current scaffold includes the UI shell, a local CLI stub, project docs, and a Node-side SQLite registry module. Adapter work is not implemented yet.
 
 ## Major Components
 
@@ -18,6 +18,7 @@ The current scaffold includes the UI shell, a local CLI stub, and project docs. 
 - `electron/preload.cjs`: Exposes a minimal safe bridge to the renderer.
 - `src/App.tsx`: Codex-style dashboard scaffold using static data.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
+- `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
 - `config/projects.schema.json`: Project config schema for canonical checkouts, issue worktree roots, Linear hints, and optional iOS review settings.
 - `config/projects.json`: Ignored local override file for machine-specific project paths.

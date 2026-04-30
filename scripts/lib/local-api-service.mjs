@@ -10,6 +10,11 @@ import {
   syncLinearProjectIssues as defaultSyncLinearProjectIssues
 } from "./linear-sync.mjs";
 import {
+  LINEAR_STATUS_ACTIONS,
+  applyLinearStatusAction as defaultApplyLinearStatusAction,
+  getLinearStatusAction
+} from "./linear-writes.mjs";
+import {
   findWorkspace as defaultFindWorkspace,
   readProjectConfig as defaultReadProjectConfig
 } from "./project-config.mjs";
@@ -42,6 +47,7 @@ export function createLocalApiService(options = {}) {
   const clock = options.clock ?? (() => new Date());
   const linearCacheStaleAfterMs = options.linearCacheStaleAfterMs ?? DEFAULT_LINEAR_CACHE_STALE_AFTER_MS;
   const syncLinearProjectIssues = options.syncLinearProjectIssues ?? defaultSyncLinearProjectIssues;
+  const applyLinearStatusAction = options.applyLinearStatusAction ?? defaultApplyLinearStatusAction;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -155,6 +161,81 @@ export function createLocalApiService(options = {}) {
         projectConfigAdapter,
         workspaceAdapter: workspaceState.adapter
       });
+    },
+
+    async applyIssueAction(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const action = getLinearStatusAction(input?.actionId);
+      const confirmed = input?.confirmed === true;
+      const note = sanitizeOptionalNote(input?.note);
+      const registry = readProjectConfig();
+      const project = selectProjectForIssue(issueId, registry.projects);
+
+      if (!project) {
+        throw new LocalApiValidationError("No configured project could be matched to this issue.");
+      }
+
+      const repository = getRegistryRepository();
+
+      try {
+        const result = await applyLinearStatusAction({
+          issueId,
+          actionId: action.id,
+          confirmed,
+          note,
+          clock
+        });
+        const issueRecord = upsertLinearWriteIssue(repository, project, result, {
+          clock,
+          linearCacheStaleAfterMs
+        });
+        const event = repository.recordEvent({
+          issueId: issueRecord.id,
+          entityType: "linear",
+          entityId: result.issue.linearId,
+          type: "linear.status.updated",
+          message: `${issueId} moved to ${result.status.name}`,
+          payload: {
+            actionId: action.id,
+            actionLabel: action.label,
+            previousStatus: result.previousStatus?.name,
+            nextStatus: result.status.name,
+            workpadOperation: result.workpad.operation,
+            workpadCommentId: result.workpad.commentId
+          }
+        });
+
+        await refreshLinearCacheAfterWrite({
+          project,
+          repository,
+          clock,
+          linearCacheStaleAfterMs,
+          syncLinearProjectIssues
+        });
+
+        return {
+          ...result,
+          event
+        };
+      } catch (error) {
+        const cachedIssue = repository.getIssueByIdentifier(project.id, issueId);
+        if (cachedIssue) {
+          repository.recordEvent({
+            issueId: cachedIssue.id,
+            entityType: "linear",
+            entityId: cachedIssue.metadata?.linearId ?? cachedIssue.id,
+            type: "linear.write.failed",
+            message: `${issueId} Linear write failed`,
+            payload: {
+              actionId: action.id,
+              actionLabel: action.label,
+              error: errorMessage(error)
+            }
+          });
+        }
+
+        throw error;
+      }
     }
   };
 }
@@ -176,6 +257,7 @@ function buildIssueResponse({
     issue,
     project,
     workspace,
+    linearStatusActions: LINEAR_STATUS_ACTIONS,
     runners: runnerStates,
     reviews: reviewStates,
     pullRequests: pullRequestStates,
@@ -240,7 +322,8 @@ async function buildIssueState(issueId, project, options) {
         staleAfterMs: options.linearCacheStaleAfterMs,
         forceStale: syncResult.status !== "fresh",
         syncError: syncResult.error
-      })
+      }),
+      events: repository.listIssueEvents(cachedIssue.id)
     };
   }
 
@@ -535,6 +618,87 @@ function selectProjectForIssue(issueId, projects = []) {
 
   if (matchingProjects.length === 1) return matchingProjects[0];
   return matchingProjects.find((project) => project.id === "workflow-hub") ?? matchingProjects[0] ?? projects[0];
+}
+
+async function refreshLinearCacheAfterWrite({
+  project,
+  repository,
+  clock,
+  linearCacheStaleAfterMs,
+  syncLinearProjectIssues
+}) {
+  try {
+    await syncLinearProjectIssues({
+      project,
+      repository,
+      clock,
+      staleAfterMs: linearCacheStaleAfterMs,
+      force: true
+    });
+  } catch {
+    // The write event is already recorded; stale cache should not hide a successful Linear mutation.
+  }
+}
+
+function upsertLinearWriteIssue(repository, project, result, options) {
+  const existingProject = repository.getProject(project.id);
+  const existingProjectMetadata = existingProject?.metadata ?? {};
+  const writtenAt = options.clock().toISOString();
+
+  repository.upsertProject({
+    id: project.id,
+    displayName: project.displayName,
+    repoPath: project.canonicalPath,
+    linearTeamKey: project.linear?.teamKey,
+    linearProjectId: project.linear?.projectId,
+    metadata: {
+      ...existingProjectMetadata,
+      linear: {
+        teamKey: project.linear?.teamKey,
+        projectId: project.linear?.projectId,
+        projectSlug: project.linear?.projectSlug
+      }
+    }
+  });
+
+  const existingIssue = repository.getIssueByIdentifier(project.id, result.issue.identifier);
+  const existingMetadata = existingIssue?.metadata ?? {};
+
+  return repository.upsertIssue({
+    id: result.issue.linearId,
+    projectId: project.id,
+    identifier: result.issue.identifier,
+    title: result.issue.title,
+    status: result.status.name,
+    linearUrl: result.issue.url,
+    priority: result.issue.priority,
+    metadata: {
+      ...existingMetadata,
+      source: "linear",
+      linearId: result.issue.linearId,
+      updatedAt: result.issue.updatedAt,
+      statusType: result.status.type,
+      stateId: result.status.id,
+      priorityLabel: result.issue.priorityLabel,
+      codexWorkpad: result.workpad,
+      linearSync: {
+        ...(existingMetadata.linearSync ?? {}),
+        status: "fresh",
+        fetchedAt: writtenAt,
+        staleAfterMs: options.linearCacheStaleAfterMs
+      }
+    }
+  });
+}
+
+function sanitizeOptionalNote(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new LocalApiValidationError("note must be a string when provided.");
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function availableAdapter(id, label, detail) {

@@ -60,6 +60,26 @@ export interface LinearWorkpad {
   };
 }
 
+export interface WorkflowEvent {
+  sequence: number;
+  id: string;
+  issueId?: string;
+  entityType: string;
+  entityId: string;
+  type: string;
+  message: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface LinearStatusAction {
+  id: string;
+  label: string;
+  stateName: string;
+  confirmationRequired: boolean;
+  confirmationReason?: string;
+}
+
 export interface LinearIssueDetails {
   linearId: string;
   identifier: string;
@@ -87,6 +107,7 @@ export interface IssueApiState {
   adapter: AdapterState;
   linear?: LinearIssueDetails;
   cache?: LinearCacheState;
+  events?: WorkflowEvent[];
 }
 
 export interface ProjectApiState {
@@ -146,10 +167,38 @@ export interface WorkflowIssueState {
   issue: IssueApiState;
   project: ProjectApiState;
   workspace: WorkspaceApiState;
+  linearStatusActions: LinearStatusAction[];
   runners: RunnerApiState[];
   reviews: ReviewApiState[];
   pullRequests: PullRequestApiState[];
   adapters: AdapterState[];
+}
+
+export interface LinearIssueActionInput {
+  issueId: string;
+  actionId: string;
+  confirmed: boolean;
+  note?: string;
+}
+
+export interface LinearIssueActionResult {
+  issueId: string;
+  action: LinearStatusAction;
+  previousStatus?: {
+    id: string;
+    name: string;
+    type?: string;
+  };
+  status: {
+    id: string;
+    name: string;
+    type?: string;
+  };
+  message: string;
+  workpad: LinearWorkpad & {
+    operation: "created" | "updated";
+  };
+  event: WorkflowEvent;
 }
 
 export interface WorkflowHubApi {
@@ -157,5 +206,6 @@ export interface WorkflowHubApi {
   platform: string;
   issues: {
     getState(issueId: string): Promise<WorkflowIssueState>;
+    applyAction(input: LinearIssueActionInput): Promise<LinearIssueActionResult>;
   };
 }

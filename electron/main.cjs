@@ -81,6 +81,30 @@ async function getIssueState(_event, issueId) {
 
 ipcMain.handle("workflow-hub:get-issue-state", getIssueState);
 
+async function applyIssueAction(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("action input must be an object.");
+  }
+
+  const args = ["linear-action"];
+  if (typeof input.issueId === "string") {
+    args.push(input.issueId);
+  }
+  if (typeof input.actionId === "string") {
+    args.push(input.actionId);
+  }
+  if (input.confirmed === true) {
+    args.push("--confirmed");
+  }
+  if (typeof input.note === "string" && input.note.trim().length > 0) {
+    args.push("--note", input.note.trim());
+  }
+
+  return runWorkflowJsonCommand(args);
+}
+
+ipcMain.handle("workflow-hub:apply-issue-action", applyIssueAction);
+
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {
     normalizeIssueId,

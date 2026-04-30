@@ -143,6 +143,68 @@ test("returns a typed issue state with resolved workspace, Linear cache, and una
   assert.equal(state.adapters.some((adapter) => adapter.id === "pr:github" && adapter.ownerIssue === "AGE-358"), true);
 });
 
+test("applies explicit Linear actions and records write events", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: async () => ({
+      status: "fresh",
+      detail: "Cache refresh skipped by test.",
+      issueCount: 1
+    }),
+    applyLinearStatusAction: async ({ issueId, actionId, confirmed, note }) => {
+      assert.equal(issueId, "AGE-355");
+      assert.equal(actionId, "blocked");
+      assert.equal(confirmed, false);
+      assert.equal(note, "Waiting on credentials.");
+
+      return {
+        issueId,
+        action: {
+          id: "blocked",
+          label: "Blocked",
+          stateName: "Blocked",
+          confirmationRequired: false
+        },
+        previousStatus: { id: "state-progress", name: "In Progress", type: "started" },
+        status: { id: "state-blocked", name: "Blocked", type: "unstarted" },
+        issue: {
+          linearId: "linear-issue-AGE-355",
+          identifier: "AGE-355",
+          title: "[Linear] Safe status transitions and workpad writes",
+          url: "https://linear.app/agentcee/issue/AGE-355/example",
+          priority: 2,
+          priorityLabel: "High",
+          updatedAt: "2026-04-30T12:00:00.000Z"
+        },
+        workpad: {
+          operation: "updated",
+          commentId: "comment-workpad",
+          body: "## Codex Workpad\n\n### Handoff\n- Review state: Blocked"
+        },
+        message: "Linear status set to Blocked."
+      };
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z")
+  });
+
+  const result = await service.applyIssueAction({
+    issueId: "age-355",
+    actionId: "blocked",
+    confirmed: false,
+    note: "Waiting on credentials."
+  });
+
+  const events = repository.listIssueEvents("linear-issue-AGE-355");
+  assert.equal(result.status.name, "Blocked");
+  assert.equal(result.event.type, "linear.status.updated");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].payload.nextStatus, "Blocked");
+});
+
 test("returns recoverable unavailable state when project config cannot load", async () => {
   const service = createLocalApiService({
     readProjectConfig: () => {

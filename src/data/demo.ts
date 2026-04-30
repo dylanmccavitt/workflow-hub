@@ -65,6 +65,20 @@ export const issues: IssueCard[] = [
     summary: "Pulls Linear metadata, linked PRs, blockers, labels, and Codex Workpad content into the local model."
   },
   {
+    id: "AGE-355",
+    title: "Safe status transitions and workpad writes",
+    repo: "workflow-hub",
+    status: "In Progress",
+    runner: "Codex",
+    branch: "feat/age-355-linear-writes",
+    worktree: "/Users/dylanmccavitt/.codex/symphony-workspaces/workflow-hub/AGE-355",
+    lastEvent: "Explicit Linear write actions are being wired behind confirmation boundaries",
+    buildTarget: "None",
+    risk: "medium",
+    phase: "Workflow Visibility",
+    summary: "Adds reviewable status actions, structured Workpad updates, and local write events."
+  },
+  {
     id: "AGE-356",
     title: "Symphony state discovery and adapter",
     repo: "workflow-hub",

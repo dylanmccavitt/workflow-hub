@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld("workflowHub", {
   issues: {
     getState(issueId) {
       return ipcRenderer.invoke("workflow-hub:get-issue-state", issueId);
+    },
+    applyAction(input) {
+      return ipcRenderer.invoke("workflow-hub:apply-issue-action", input);
     }
   }
 });

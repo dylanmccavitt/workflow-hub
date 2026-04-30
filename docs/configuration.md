@@ -25,6 +25,8 @@ Project fields:
 - `worktrees.branchTemplate`: branch naming template for new issue work.
 - `ios`: optional iOS review settings.
 
+For live Linear project issue sync, set `linear.projectId`. `projectSlug` is a readable hint and URL aid, but the read-only sync queries Linear by project id.
+
 When `ios` is present, it must include:
 
 - `projectPath` or `workspacePath`: Xcode project/workspace path relative to the issue worktree.

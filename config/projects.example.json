@@ -32,6 +32,7 @@
       "displayName": "Workflow Hub",
       "linear": {
         "teamKey": "AGE",
+        "projectId": "50a8c298-e3fd-4617-bf7e-8db2cd7331b7",
         "projectSlug": "workflow-hub"
       },
       "repo": {

@@ -10,13 +10,14 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, and a main-process local API service for resolving selected issue state through typed IPC. Adapter work for Linear, Symphony, runners, review controls, and PR providers is represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a read-only Linear project issue sync adapter, and a main-process local API service for resolving selected issue state through typed IPC. Symphony, runner, review-control, and PR-provider adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary.
 - `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
 - `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, and PR state contracts. It owns project config reads, scoped git probes, and unavailable-adapter responses.
+- `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
 - `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state and adapter availability for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
@@ -40,7 +41,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 
 1. User selects a Linear issue.
 2. Hub asks the main-process local API for project, issue, workspace, runner, review, and PR state.
-3. The local API resolves the issue worktree through project config, reads scoped git status, and marks missing adapters as recoverable unavailable state.
+3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, and marks missing adapters as recoverable unavailable state.
 4. Hub shows branch, PR, runner, and Symphony state.
 5. User launches simulator/device review from the issue worktree.
 6. User marks `Needs Fixes` or proceeds to merge through explicit actions.

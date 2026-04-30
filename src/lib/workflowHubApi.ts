@@ -10,11 +10,83 @@ export interface AdapterState {
   ownerIssue?: string;
 }
 
+export type LinearCacheStatus = "fresh" | "stale" | "error" | "not-configured" | "miss";
+
+export interface LinearCacheState {
+  status: LinearCacheStatus;
+  stale: boolean;
+  fetchedAt?: string;
+  ageMs?: number;
+  staleAfterMs?: number;
+  error?: string;
+}
+
+export interface LinearIssueReference {
+  id: string;
+  identifier: string;
+  title: string;
+  url?: string;
+  status?: string;
+  statusType?: string;
+}
+
+export interface LinearAttachment {
+  id: string;
+  title?: string;
+  subtitle?: string;
+  url?: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LinearPullRequestAttachment extends LinearAttachment {
+  provider: string;
+  number?: number;
+  branch?: string;
+  status: string;
+}
+
+export interface LinearWorkpad {
+  commentId: string;
+  body: string;
+  createdAt?: string;
+  updatedAt?: string;
+  user?: {
+    id: string;
+    name?: string;
+    email?: string;
+  };
+}
+
+export interface LinearIssueDetails {
+  linearId: string;
+  identifier: string;
+  title: string;
+  status: string;
+  statusType?: string;
+  url?: string;
+  priority?: number;
+  priorityLabel?: string;
+  labels: Array<{ id: string; name: string }>;
+  parent?: LinearIssueReference;
+  blockers: LinearIssueReference[];
+  blockedIssues: LinearIssueReference[];
+  links: LinearAttachment[];
+  pullRequests: LinearPullRequestAttachment[];
+  codexWorkpad?: LinearWorkpad;
+  updatedAt?: string;
+  cache: LinearCacheState;
+}
+
 export interface IssueApiState {
   issueId: string;
   source: "linear";
   status: EntityStatus;
   adapter: AdapterState;
+  linear?: LinearIssueDetails;
+  cache?: LinearCacheState;
 }
 
 export interface ProjectApiState {

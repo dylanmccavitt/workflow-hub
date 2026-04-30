@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process";
 import {
+  createRegistryRepository,
+  openRegistryDatabase
+} from "./registry-db.mjs";
+import {
+  DEFAULT_LINEAR_CACHE_STALE_AFTER_MS,
+  getCachedLinearIssue,
+  linearIssueFromCachedRecord,
+  syncLinearProjectIssues as defaultSyncLinearProjectIssues
+} from "./linear-sync.mjs";
+import {
   findWorkspace as defaultFindWorkspace,
   readProjectConfig as defaultReadProjectConfig
 } from "./project-config.mjs";
@@ -29,18 +39,40 @@ export function createLocalApiService(options = {}) {
   const readProjectConfig = options.readProjectConfig ?? defaultReadProjectConfig;
   const findWorkspace = options.findWorkspace ?? defaultFindWorkspace;
   const gitRunner = options.gitRunner ?? runGit;
+  const clock = options.clock ?? (() => new Date());
+  const linearCacheStaleAfterMs = options.linearCacheStaleAfterMs ?? DEFAULT_LINEAR_CACHE_STALE_AFTER_MS;
+  const syncLinearProjectIssues = options.syncLinearProjectIssues ?? defaultSyncLinearProjectIssues;
+  let registryRepository = options.registryRepository;
+
+  function getRegistryRepository() {
+    if (!registryRepository) {
+      registryRepository = createRegistryRepository(openRegistryDatabase(options.registryDatabasePath), {
+        clock
+      });
+    }
+
+    return registryRepository;
+  }
 
   return {
     version: LOCAL_API_VERSION,
 
-    getIssueState(inputIssueId) {
+    async getIssueState(inputIssueId) {
       const issueId = normalizeIssueId(inputIssueId);
-      const issue = buildIssueState(issueId);
 
       let registry;
       try {
         registry = readProjectConfig();
       } catch (error) {
+        const issue = unavailableIssueState(
+          issueId,
+          unavailableAdapter(
+            "linear",
+            "Linear",
+            "Linear issue sync is unavailable because project config could not be loaded.",
+            "AGE-354"
+          )
+        );
         const projectConfigAdapter = unavailableAdapter(
           "project-config",
           "Project config",
@@ -82,6 +114,12 @@ export function createLocalApiService(options = {}) {
           `Workspace resolver failed: ${errorMessage(error)}`
         );
         const project = selectProjectForIssue(issueId, registry.projects);
+        const issue = await buildIssueState(issueId, project, {
+          clock,
+          getRegistryRepository,
+          linearCacheStaleAfterMs,
+          syncLinearProjectIssues
+        });
 
         return buildIssueResponse({
           issue,
@@ -98,6 +136,12 @@ export function createLocalApiService(options = {}) {
       }
 
       const project = workspaceMatch?.project ?? selectProjectForIssue(issueId, registry.projects);
+      const issue = await buildIssueState(issueId, project, {
+        clock,
+        getRegistryRepository,
+        linearCacheStaleAfterMs,
+        syncLinearProjectIssues
+      });
       const projectState = projectStateFromProject(project, projectConfigAdapter);
       const workspaceState = workspaceMatch
         ? workspaceStateFromMatch(issueId, workspaceMatch, gitRunner)
@@ -147,14 +191,74 @@ function buildIssueResponse({
   };
 }
 
-function buildIssueState(issueId) {
-  const adapter = unavailableAdapter(
-    "linear",
-    "Linear",
-    "Linear issue sync is not wired into the local API yet; renderer issue metadata is still demo-backed.",
-    "AGE-354"
-  );
+async function buildIssueState(issueId, project, options) {
+  if (!project) {
+    return {
+      issueId,
+      source: "linear",
+      status: "not-found",
+      adapter: notFoundAdapter(
+        "linear",
+        "Linear",
+        "No configured project could be matched to this issue."
+      )
+    };
+  }
 
+  let syncResult;
+  let repository;
+  try {
+    repository = options.getRegistryRepository();
+    syncResult = await options.syncLinearProjectIssues({
+      project,
+      repository,
+      clock: options.clock,
+      staleAfterMs: options.linearCacheStaleAfterMs
+    });
+  } catch (error) {
+    syncResult = {
+      status: "error",
+      detail: `Linear sync failed: ${errorMessage(error)}`,
+      error: errorMessage(error),
+      staleAfterMs: options.linearCacheStaleAfterMs
+    };
+  }
+
+  const cachedIssue = repository
+    ? getCachedLinearIssue(repository, project.id, issueId)
+    : undefined;
+  const adapter = linearAdapterFromSyncResult(syncResult, cachedIssue);
+
+  if (cachedIssue) {
+    return {
+      issueId,
+      source: "linear",
+      status: "available",
+      adapter,
+      linear: linearIssueFromCachedRecord(cachedIssue, {
+        now: options.clock(),
+        staleAfterMs: options.linearCacheStaleAfterMs,
+        forceStale: syncResult.status !== "fresh",
+        syncError: syncResult.error
+      })
+    };
+  }
+
+  return {
+    issueId,
+    source: "linear",
+    status: syncResult.status === "fresh" ? "not-found" : adapter.status,
+    adapter,
+    cache: {
+      status: syncResult.status === "fresh" ? "miss" : syncResult.status,
+      stale: true,
+      staleAfterMs: options.linearCacheStaleAfterMs,
+      error: syncResult.error
+    }
+  };
+}
+
+function unavailableIssueState(issueId, adapter) {
   return {
     issueId,
     source: "linear",
@@ -341,6 +445,35 @@ function buildPullRequestStates() {
       )
     }
   ];
+}
+
+function linearAdapterFromSyncResult(syncResult, cachedIssue) {
+  if (syncResult.status === "fresh") {
+    return availableAdapter(
+      "linear",
+      "Linear",
+      syncResult.detail ?? `Synced ${syncResult.issueCount ?? 0} Linear issue(s).`
+    );
+  }
+
+  if (syncResult.status === "not-configured") {
+    return notConfiguredAdapter(
+      "linear",
+      "Linear",
+      cachedIssue
+        ? `${syncResult.detail} Cached Linear issue data is available but stale.`
+        : syncResult.detail
+    );
+  }
+
+  return unavailableAdapter(
+    "linear",
+    "Linear",
+    cachedIssue
+      ? `${syncResult.detail} Showing stale cached Linear issue data.`
+      : syncResult.detail,
+    "AGE-354"
+  );
 }
 
 function collectGitState(workspacePath, gitRunner) {

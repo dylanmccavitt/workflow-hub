@@ -27,6 +27,7 @@ function usage() {
 Usage:
   npm run workflow -- config [--json]
   npm run workflow -- api-state [ISSUE_ID] --json
+  npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--dry-run] [--json]
   npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--dry-run] [--json]
   npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
   npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
@@ -417,6 +418,159 @@ function parseCursorRunArgs(args, registry) {
   };
 }
 
+function parseCodexRunArgs(args, registry) {
+  let issueId;
+  let json = false;
+  let dryRun = false;
+  let payload = {};
+  let prompt;
+  let command;
+  let model;
+  let profile;
+  let sandbox;
+  let approvalPolicy;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+
+    if (arg === "--payload") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--payload requires a value");
+      }
+      payload = decodePayload(args[index]);
+      continue;
+    }
+
+    if (arg === "--prompt") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--prompt requires a value");
+      }
+      prompt = args[index];
+      continue;
+    }
+
+    if (arg === "--command") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--command requires a value");
+      }
+      command = args[index];
+      continue;
+    }
+
+    if (arg === "--model") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--model requires a value");
+      }
+      model = args[index];
+      continue;
+    }
+
+    if (arg === "--profile") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--profile requires a value");
+      }
+      profile = args[index];
+      continue;
+    }
+
+    if (arg === "--sandbox") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--sandbox requires a value");
+      }
+      sandbox = args[index];
+      continue;
+    }
+
+    if (arg === "--approval-policy") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--approval-policy requires a value");
+      }
+      approvalPolicy = args[index];
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown codex-run flag: ${arg}`);
+    }
+
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg)) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+
+    throw new Error(`Unexpected codex-run argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = payload.issueId
+      ? normalizeIssueId(payload.issueId)
+      : selectIssueId(undefined, registry);
+  }
+
+  return {
+    ...payload,
+    issueId,
+    prompt: prompt ?? payload.prompt,
+    command: command ?? payload.command,
+    model: model ?? payload.model,
+    profile: profile ?? payload.profile,
+    sandbox: sandbox ?? payload.sandbox,
+    approvalPolicy: approvalPolicy ?? payload.approvalPolicy,
+    dryRun: dryRun || payload.dryRun === true,
+    json
+  };
+}
+
+async function codexRun(args) {
+  const registry = readProjectConfig();
+  const parsed = parseCodexRunArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.startCodexRun(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (payload.dryRun) {
+    console.log([
+      `${payload.issueId} Codex run ready.`,
+      `Command: ${payload.command.join(" ")}`,
+      `Worktree: ${payload.cwd}`,
+      `Sandbox: ${payload.permissionBoundary.sandbox}`,
+      `Approvals: ${payload.permissionBoundary.approvalPolicy}`,
+      `Log: ${payload.logPath}`
+    ].join("\n"));
+    return;
+  }
+
+  console.log([
+    `${payload.issueId} Codex run ${payload.status}.`,
+    `Run: ${payload.runId ?? "unknown"}`,
+    `Session: ${payload.sessionId ?? "unknown"}`,
+    `Worktree: ${payload.cwd}`,
+    `Log: ${payload.logPath}`,
+    `Summary: ${payload.summary ?? "none"}`
+  ].join("\n"));
+}
+
 async function cursorRun(args) {
   const registry = readProjectConfig();
   const parsed = parseCursorRunArgs(args, registry);
@@ -624,67 +778,76 @@ function review(args) {
   process.exit(1);
 }
 
-const [command, ...args] = process.argv.slice(2);
+async function main() {
+  const [command, ...args] = process.argv.slice(2);
 
-if (!command) {
-  usage();
-  process.exit(0);
-}
+  if (!command) {
+    usage();
+    return;
+  }
 
-try {
   if (command === "config") {
     printConfig(args[0]);
-    process.exit(0);
+    return;
   }
 
   if (command === "linear-sync") {
     await linearSync(args[0], args[1]);
-    process.exit(0);
+    return;
   }
 
   if (command === "linear-action") {
     await linearAction(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "api-state") {
     await apiState(args);
-    process.exit(0);
+    return;
+  }
+
+  if (command === "codex-run") {
+    await codexRun(args);
+    return;
   }
 
   if (command === "cursor-run") {
     await cursorRun(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "fix-prompt") {
     await fixPrompt(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "fix-prompt-save") {
     await fixPromptSave(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "status") {
     status(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "open") {
     openWorkspace(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "review") {
     review(args);
-    process.exit(0);
+    return;
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+
+  usage();
+  process.exitCode = 1;
 }
 
-usage();
-process.exit(1);
+try {
+  await main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

@@ -22,6 +22,11 @@ const registry = {
         projectSlug: "workflow-hub"
       },
       runners: {
+        codex: {
+          command: "codex",
+          sandbox: "workspace-write",
+          approvalPolicy: "never"
+        },
         cursor: {
           model: "composer-2",
           configPath: ".cursor",
@@ -300,7 +305,8 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
   assert.equal(state.workspace.dirty, true);
   assert.equal(state.symphony.selectedIssue.normalizedState, "active");
   assert.equal(state.runners.find((runner) => runner.kind === "Symphony").status, "available");
-  assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "unavailable");
+  assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "available");
+  assert.match(state.runners.find((runner) => runner.kind === "Codex").detail, /workspace-write/);
   assert.equal(state.runners.find((runner) => runner.kind === "Cursor SDK").status, "available");
   assert.match(state.runners.find((runner) => runner.kind === "Cursor SDK").detail, /composer-2/);
   assert.equal(state.pullRequests[0].status, "available");
@@ -374,6 +380,73 @@ test("applies explicit Linear actions and records write events", async (t) => {
   assert.equal(result.event.type, "linear.status.updated");
   assert.equal(events.length, 1);
   assert.equal(events[0].payload.nextStatus, "Blocked");
+});
+
+test("starts Codex runs through the resolved issue worktree", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
+    readGitHubPullRequestState: githubFixtureState,
+    readGraphiteStackState: graphiteFixtureState,
+    startCodexLocalRun: async (input) => {
+      assert.equal(input.issueId, "AGE-349");
+      assert.equal(input.prompt, "Inspect the local worktree.");
+      assert.equal(input.workspace.path, "/worktrees/workflow-hub/AGE-349");
+      assert.equal(input.sandbox, "read-only");
+      assert.equal(input.approvalPolicy, "never");
+      return {
+        issueId: input.issueId,
+        dryRun: true,
+        status: "ready",
+        prompt: input.prompt,
+        command: ["codex", "exec", "--json"],
+        cwd: input.workspace.path,
+        logPath: "/tmp/codex.jsonl",
+        summaryPath: "/tmp/codex-summary.md",
+        permissionBoundary: {
+          cwd: input.workspace.path,
+          sandbox: input.sandbox,
+          approvalPolicy: input.approvalPolicy,
+          writableRoots: [input.workspace.path],
+          addDirs: []
+        }
+      };
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      path: "/worktrees/workflow-hub/AGE-349"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  const result = await service.startCodexRun({
+    issueId: "age-349",
+    prompt: "Inspect the local worktree.",
+    sandbox: "read-only",
+    approvalPolicy: "never",
+    dryRun: true
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.cwd, "/worktrees/workflow-hub/AGE-349");
+  assert.equal(result.permissionBoundary.sandbox, "read-only");
 });
 
 test("drafts and saves review fix prompt events", async (t) => {

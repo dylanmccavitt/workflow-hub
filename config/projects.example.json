@@ -48,6 +48,11 @@
         "branchTemplate": "feat/{issueIdLower}-{slug}"
       },
       "runners": {
+        "codex": {
+          "command": "codex",
+          "sandbox": "workspace-write",
+          "approvalPolicy": "never"
+        },
         "cursor": {
           "model": "composer-2",
           "configPath": ".cursor",

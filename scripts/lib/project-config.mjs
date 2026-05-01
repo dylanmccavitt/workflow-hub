@@ -13,6 +13,10 @@ const DEFAULT_DERIVED_DATA_ROOT = "/tmp";
 const DEFAULT_CURSOR_MODEL = "composer-2";
 const DEFAULT_CURSOR_CONFIG_PATH = ".cursor";
 const DEFAULT_CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
+const DEFAULT_CODEX_COMMAND = "codex";
+const DEFAULT_CODEX_SANDBOX = "workspace-write";
+const DEFAULT_CODEX_APPROVAL_POLICY = "never";
+const CODEX_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 const ISSUE_ID_PATTERN = /[a-z]+-\d+/i;
 
 export class ProjectConfigValidationError extends Error {
@@ -297,6 +301,24 @@ function validateProject(project, index, seenIds) {
           validateOptionalString(errors, cursor.apiKeyEnv, `${prefix}.runners.cursor.apiKeyEnv`);
         }
       }
+      const codex = project.runners.codex;
+      if (codex !== undefined) {
+        if (!isRecord(codex)) {
+          errors.push(`${prefix}.runners.codex must be an object when present`);
+        } else {
+          validateOptionalString(errors, codex.command, `${prefix}.runners.codex.command`);
+          validateOptionalString(errors, codex.model, `${prefix}.runners.codex.model`);
+          validateOptionalString(errors, codex.profile, `${prefix}.runners.codex.profile`);
+          validateOptionalString(errors, codex.sandbox, `${prefix}.runners.codex.sandbox`);
+          if (codex.sandbox !== undefined && !CODEX_SANDBOX_VALUES.has(codex.sandbox)) {
+            errors.push(`${prefix}.runners.codex.sandbox must be read-only or workspace-write`);
+          }
+          validateOptionalString(errors, codex.approvalPolicy, `${prefix}.runners.codex.approvalPolicy`);
+          if (codex.logRoot !== undefined && !isAbsoluteConfigPath(codex.logRoot)) {
+            errors.push(`${prefix}.runners.codex.logRoot must be an absolute path or ~/ path when present`);
+          }
+        }
+      }
     }
   }
 
@@ -348,6 +370,18 @@ function normalizeProject(project) {
               model: project.runners.cursor.model ?? DEFAULT_CURSOR_MODEL,
               configPath: project.runners.cursor.configPath ?? DEFAULT_CURSOR_CONFIG_PATH,
               apiKeyEnv: project.runners.cursor.apiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV
+            }
+          : undefined,
+        codex: project.runners.codex
+          ? {
+              command: project.runners.codex.command ?? DEFAULT_CODEX_COMMAND,
+              model: project.runners.codex.model,
+              profile: project.runners.codex.profile,
+              sandbox: project.runners.codex.sandbox ?? DEFAULT_CODEX_SANDBOX,
+              approvalPolicy: project.runners.codex.approvalPolicy ?? DEFAULT_CODEX_APPROVAL_POLICY,
+              logRoot: project.runners.codex.logRoot
+                ? expandPath(project.runners.codex.logRoot)
+                : undefined
             }
           : undefined
       }

@@ -136,6 +136,14 @@ export interface ProjectApiState {
   canonicalBranch?: string;
   iosConfigured?: boolean;
   runners?: {
+    codex?: {
+      command: string;
+      model?: string;
+      profile?: string;
+      sandbox: string;
+      approvalPolicy: string;
+      logRoot?: string;
+    };
     cursor?: {
       model: string;
       configPath: string;
@@ -171,7 +179,12 @@ export interface RunnerApiState {
   detail: string;
   adapter: AdapterState;
   config?: {
+    command?: string;
     model?: string;
+    profile?: string;
+    sandbox?: string;
+    approvalPolicy?: string;
+    logRoot?: string;
     configPath?: string;
     apiKeyEnv?: string;
   };
@@ -433,6 +446,45 @@ export interface CursorRunInput {
   dryRun?: boolean;
 }
 
+export interface CodexPermissionBoundary {
+  cwd: string;
+  sandbox: string;
+  approvalPolicy: string;
+  writableRoots: string[];
+  addDirs: string[];
+}
+
+export interface CodexRunInput {
+  issueId: string;
+  prompt: string;
+  command?: string;
+  model?: string;
+  profile?: string;
+  sandbox?: string;
+  approvalPolicy?: string;
+  dryRun?: boolean;
+}
+
+export interface CodexRunResult {
+  issueId: string;
+  dryRun: boolean;
+  status: string;
+  prompt: string;
+  command: string[];
+  cwd: string;
+  logPath: string;
+  summaryPath: string;
+  sessionId?: string;
+  runId?: string;
+  summary?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  streamedEventCount?: number;
+  permissionBoundary: CodexPermissionBoundary;
+  run?: WorkflowRunRecord;
+  event?: WorkflowEvent;
+}
+
 export interface CursorRunResult {
   issueId: string;
   dryRun: boolean;
@@ -488,6 +540,7 @@ export interface WorkflowHubApi {
     applyAction(input: LinearIssueActionInput): Promise<LinearIssueActionResult>;
     draftFixPrompt(input: ReviewFixPromptInput): Promise<ReviewFixPromptDraft>;
     saveFixPrompt(input: SaveReviewFixPromptInput): Promise<ReviewFixPromptSaveResult>;
+    startCodexRun(input: CodexRunInput): Promise<CodexRunResult>;
     startCursorRun(input: CursorRunInput): Promise<CursorRunResult>;
   };
 }

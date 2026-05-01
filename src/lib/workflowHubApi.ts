@@ -420,6 +420,16 @@ export interface WorkflowIssueState {
   adapters: AdapterState[];
 }
 
+export interface WorkflowIssueListState {
+  apiVersion: string;
+  generatedAt: string;
+  project: ProjectApiState;
+  cache: LinearCacheState;
+  adapter: AdapterState;
+  issues: LinearIssueDetails[];
+  adapters: AdapterState[];
+}
+
 export interface LinearIssueActionInput {
   issueId: string;
   actionId: string;
@@ -568,6 +578,7 @@ export interface WorkflowHubApi {
   version: string;
   platform: string;
   issues: {
+    list(): Promise<WorkflowIssueListState>;
     getState(issueId: string): Promise<WorkflowIssueState>;
     applyAction(input: LinearIssueActionInput): Promise<LinearIssueActionResult>;
     draftFixPrompt(input: ReviewFixPromptInput): Promise<ReviewFixPromptDraft>;

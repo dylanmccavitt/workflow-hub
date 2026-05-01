@@ -261,6 +261,48 @@ test("normalizes issue identifiers", () => {
   assert.throws(() => normalizeIssueId("../AGE-349"), LocalApiValidationError);
 });
 
+test("lists Linear-backed project issues through the local API cache", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    clock: () => new Date("2026-04-30T12:00:00.000Z")
+  });
+
+  const state = await service.listIssues({ projectId: "workflow-hub" });
+
+  assert.equal(state.apiVersion, "0.1.0");
+  assert.equal(state.project.projectId, "workflow-hub");
+  assert.equal(state.adapter.status, "available");
+  assert.equal(state.cache.status, "fresh");
+  assert.equal(state.cache.stale, false);
+  assert.equal(state.issues.length, 1);
+  assert.equal(state.issues[0].identifier, "AGE-349");
+  assert.equal(state.issues[0].title, "[Foundation] Local daemon and renderer API boundary");
+  assert.equal(state.issues[0].codexWorkpad.commentId, "comment-1");
+  assert.equal(state.adapters.some((adapter) => adapter.id === "linear" && adapter.status === "available"), true);
+});
+
+test("reports an empty not-found issue list for unknown projects", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository
+  });
+
+  const state = await service.listIssues({ projectId: "missing-project" });
+
+  assert.equal(state.project.status, "not-found");
+  assert.equal(state.cache.status, "miss");
+  assert.deepEqual(state.issues, []);
+  assert.match(state.adapter.detail, /missing-project/);
+});
+
 test("returns a typed issue state with resolved workspace, Linear cache, and GitHub PR state", async (t) => {
   const repository = memoryRepository();
   t.after(() => repository.close());

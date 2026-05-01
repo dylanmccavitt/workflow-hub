@@ -22,15 +22,11 @@ import {
   Workflow
 } from "lucide-react";
 import {
-  acceptanceCriteria,
   dailyFlow,
-  issues,
   runnerBackends,
-  systemSignals,
-  timeline
+  systemSignals
 } from "./data/demo";
 import type {
-  AcceptanceCriterion,
   CriterionStatus,
   DailyFlowStep,
   IssueCard,
@@ -50,7 +46,9 @@ import type {
   GitHubReviewComment,
   GraphiteStackApiState,
   GraphiteStackBranch,
+  LinearCacheState,
   LinearIssueDetails,
+  LinearIssueReference,
   LinearStatusAction,
   PullRequestApiState,
   ReviewFixPromptDraft,
@@ -59,19 +57,26 @@ import type {
   RunnerNormalizedState,
   RunnerTimelineEntry,
   WorkflowEvent,
+  WorkflowIssueListState,
   WorkflowIssueState
 } from "./lib/workflowHubApi";
 
 const statuses: IssueStatus[] = [
   "Backlog",
+  "Todo",
   "Ready",
   "In Progress",
   "Human Review",
+  "In Review",
   "Needs Fixes",
   "Merging",
   "Blocked",
-  "Done"
+  "Done",
+  "Canceled",
+  "Duplicate"
 ];
+
+const DEFAULT_ISSUE_ID = "AGE-346";
 
 const fallbackLinearActions: LinearStatusAction[] = [
   { id: "ready", label: "Ready", stateName: "Ready", confirmationRequired: true },
@@ -229,6 +234,58 @@ function issueStatusFromLinear(status: string | undefined, fallback: IssueStatus
   return statuses.includes(status as IssueStatus) ? status as IssueStatus : fallback;
 }
 
+function runnerForLinearIssue(issue: LinearIssueDetails): IssueCard["runner"] {
+  const searchable = [
+    issue.title,
+    issue.labels.map((label) => label.name).join(" ")
+  ].join(" ");
+
+  if (/cursor/i.test(searchable)) return "Cursor SDK";
+  if (/symphony/i.test(searchable)) return "Symphony";
+  return "Codex";
+}
+
+function phaseForLinearIssue(issue: LinearIssueDetails) {
+  const titlePhase = issue.title.match(/^\[([^\]]+)\]/)?.[1];
+  const trackLabel = issue.labels.find((label) => label.name.startsWith("track:"))?.name.replace("track:", "");
+  return titlePhase ?? (trackLabel ? labelForStatus(trackLabel) : "Workflow");
+}
+
+function riskForLinearIssue(issue: LinearIssueDetails): IssueCard["risk"] {
+  const risk = issue.labels.find((label) => label.name.startsWith("risk:"))?.name.replace("risk:", "");
+  return risk === "low" || risk === "high" ? risk : "medium";
+}
+
+function summaryForLinearIssue(issue: LinearIssueDetails) {
+  const parts = [
+    issue.cache.stale ? `${labelForStatus(issue.cache.status)} cache` : "Fresh cache",
+    issue.blockers.length > 0 ? `${issue.blockers.length} blocker(s)` : undefined,
+    issue.blockedIssues.length > 0 ? `${issue.blockedIssues.length} blocked issue(s)` : undefined,
+    issue.pullRequests.length > 0 ? `${issue.pullRequests.length} PR link(s)` : undefined,
+    issue.codexWorkpad ? "Workpad found" : "No Workpad"
+  ];
+
+  return parts.filter(Boolean).join(" | ");
+}
+
+function issueCardFromLinearIssue(issue: LinearIssueDetails, projectName: string | undefined): IssueCard {
+  return {
+    id: issue.identifier,
+    title: issue.title,
+    repo: projectName ?? "workflow-hub",
+    status: issueStatusFromLinear(issue.status, "Backlog"),
+    runner: runnerForLinearIssue(issue),
+    branch: issue.branchName ?? "No branch linked",
+    worktree: "Resolved on selection",
+    pr: issue.pullRequests[0]?.title,
+    lastEvent: issue.updatedAt ? `Linear updated ${formatTimestamp(issue.updatedAt)}` : cacheStatusText(issue.cache),
+    buildTarget: "None",
+    risk: riskForLinearIssue(issue),
+    phase: phaseForLinearIssue(issue),
+    summary: summaryForLinearIssue(issue)
+  };
+}
+
 function workpadText(linearIssue: LinearIssueDetails | undefined) {
   if (!linearIssue?.codexWorkpad) return "Not found";
   return linearIssue.codexWorkpad.updatedAt
@@ -240,8 +297,46 @@ function cacheText(issueState: WorkflowIssueState | undefined) {
   const cache = issueState?.issue.linear?.cache ?? issueState?.issue.cache;
   if (!cache) return issueState?.issue.adapter.detail ?? "Waiting for Linear";
 
+  return cacheStatusText(cache);
+}
+
+function cacheStatusText(cache: LinearCacheState) {
   if (cache.status === "stale") return "Stale";
   return cache.stale ? `${labelForStatus(cache.status)} stale` : labelForStatus(cache.status);
+}
+
+function formatCacheAge(ageMs: number | undefined) {
+  if (typeof ageMs !== "number") return undefined;
+
+  const seconds = Math.max(0, Math.round(ageMs / 1000));
+  if (seconds < 60) return `${seconds}s old`;
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m old`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h old`;
+
+  return `${Math.round(hours / 24)}d old`;
+}
+
+function cacheNoticeDetail(cache: LinearCacheState, adapter: AdapterState | undefined) {
+  const details = [
+    cacheStatusText(cache),
+    adapter?.detail,
+    cache.error,
+    cache.fetchedAt ? `Fetched ${formatTimestamp(cache.fetchedAt)}` : undefined,
+    formatCacheAge(cache.ageMs)
+  ].filter((detail): detail is string => Boolean(detail));
+
+  return [...new Set(details)].join(" | ");
+}
+
+function toneForCache(cache: LinearCacheState | undefined): Tone {
+  if (!cache) return "neutral";
+  if (cache.status === "error") return "danger";
+  if (cache.stale || cache.status === "not-configured" || cache.status === "miss") return "warning";
+  return "success";
 }
 
 function formatTimestamp(value: string) {
@@ -391,17 +486,16 @@ function initialSelectedIssueId() {
   const requestedIssueId = params.get("issue")?.toUpperCase();
   return requestedIssueId && /^[a-z]+-\d+$/i.test(requestedIssueId)
     ? requestedIssueId
-    : issues[0].id;
-}
-
-function hasStaticIssue(issueId: string) {
-  return issues.some((issue) => issue.id === issueId);
+    : DEFAULT_ISSUE_ID;
 }
 
 function issueCardFromState(issueId: string, issueState: WorkflowIssueState | undefined): IssueCard {
   const linearIssue = issueState?.issue.linear;
   const workspace = issueState?.workspace;
   const pullRequestState = gitHubPullRequestState(issueState?.pullRequests);
+  const baseIssue = linearIssue
+    ? issueCardFromLinearIssue(linearIssue, issueState?.project.displayName)
+    : undefined;
   const summary = pullRequestState?.detail
     ?? workspace?.adapter.detail
     ?? issueState?.issue.adapter.detail
@@ -409,19 +503,19 @@ function issueCardFromState(issueId: string, issueState: WorkflowIssueState | un
 
   return {
     id: issueId,
-    title: linearIssue?.title ?? "Loading issue state",
-    repo: issueState?.project.displayName ?? "workflow-hub",
-    status: issueStatusFromLinear(linearIssue?.status, "Backlog"),
-    runner: "Codex",
+    title: baseIssue?.title ?? "Loading issue state",
+    repo: baseIssue?.repo ?? issueState?.project.displayName ?? "workflow-hub",
+    status: baseIssue?.status ?? issueStatusFromLinear(linearIssue?.status, "Backlog"),
+    runner: baseIssue?.runner ?? "Codex",
     branch: workspace?.branch ?? "Resolving branch",
     worktree: workspace?.path ?? "Resolving issue workspace",
     pr: pullRequestState?.pullRequest
       ? `#${pullRequestState.pullRequest.number} ${pullRequestState.pullRequest.title}`
-      : undefined,
+      : baseIssue?.pr,
     lastEvent: pullRequestState?.detail ?? issueState?.issue.adapter.detail ?? "Loading local API state",
     buildTarget: "None",
-    risk: "medium",
-    phase: "Workflow Visibility",
+    risk: baseIssue?.risk ?? "medium",
+    phase: baseIssue?.phase ?? "Workflow Visibility",
     summary
   };
 }
@@ -448,16 +542,42 @@ function GraphiteBranchRow({ branch }: { branch: GraphiteStackBranch }) {
 function ActionButton({
   icon,
   label,
+  disabled = false,
+  href,
+  onClick,
   primary = false
 }: {
   icon: React.ReactNode;
   label: string;
+  disabled?: boolean;
+  href?: string;
+  onClick?: () => void;
   primary?: boolean;
 }) {
-  return (
-    <button className={`action-button ${primary ? "primary" : ""}`} title={label} type="button">
+  const content = (
+    <>
       {icon}
       <span>{label}</span>
+    </>
+  );
+
+  if (href && !disabled) {
+    return (
+      <a className={`action-button ${primary ? "primary" : ""}`} href={href} rel="noreferrer" target="_blank">
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      className={`action-button ${primary ? "primary" : ""}`}
+      disabled={disabled || !onClick}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      {content}
     </button>
   );
 }
@@ -1122,19 +1242,6 @@ function FlowStep({ step, index }: { step: DailyFlowStep; index: number }) {
   );
 }
 
-function AcceptanceRow({ item }: { item: AcceptanceCriterion }) {
-  return (
-    <article className="acceptance-row">
-      <div>
-        <span className="acceptance-owner">{item.ownerIssue}</span>
-        <h3>{item.label}</h3>
-        <p>{item.detail}</p>
-      </div>
-      <CriterionPill status={item.status} />
-    </article>
-  );
-}
-
 function TimelineRow({ event }: { event: TimelineEvent }) {
   return (
     <article className={`timeline-event ${event.tone}`}>
@@ -1158,6 +1265,96 @@ function SystemSignalRow({ signal }: { signal: SystemSignal }) {
       </div>
       <strong>{signal.value}</strong>
     </div>
+  );
+}
+
+function StateNotice({
+  title,
+  detail,
+  tone = "neutral",
+  compact = false
+}: {
+  title: string;
+  detail: string;
+  tone?: Tone;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`state-notice ${tone} ${compact ? "compact" : ""}`}>
+      <ToneIcon tone={tone} />
+      <div>
+        <strong>{title}</strong>
+        <p>{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+function LinkedIssueRow({
+  label,
+  issue
+}: {
+  label: string;
+  issue: LinearIssueReference;
+}) {
+  const content = (
+    <>
+      <div>
+        <span className="acceptance-owner">{label}</span>
+        <h3>{issue.identifier}</h3>
+        <p>{issue.title}</p>
+      </div>
+      <StatusPill status={issue.status ?? "Unknown"} />
+    </>
+  );
+
+  return issue.url ? (
+    <a className="linked-issue-row" href={issue.url} rel="noreferrer" target="_blank">
+      {content}
+    </a>
+  ) : (
+    <article className="linked-issue-row">{content}</article>
+  );
+}
+
+function LinkedIssueBoard({
+  linearIssue,
+  isLoading,
+  apiError
+}: {
+  linearIssue: LinearIssueDetails | undefined;
+  isLoading: boolean;
+  apiError: string | undefined;
+}) {
+  const linkedIssues = [
+    ...(linearIssue?.parent ? [{ label: "Parent", issue: linearIssue.parent }] : []),
+    ...(linearIssue?.blockers ?? []).map((issue) => ({ label: "Blocks this", issue })),
+    ...(linearIssue?.blockedIssues ?? []).map((issue) => ({ label: "Blocked by this", issue }))
+  ];
+
+  return (
+    <section className="acceptance-board" aria-label="Linked issues">
+      <div className="section-heading">
+        <p className="eyebrow">Linear graph</p>
+        <h2>Linked Issues</h2>
+      </div>
+      {isLoading ? (
+        <StateNotice title="Loading linked issues" detail="Reading the selected issue through the local API." />
+      ) : apiError ? (
+        <StateNotice title="Linked issues unavailable" detail={apiError} tone="danger" />
+      ) : linkedIssues.length > 0 ? (
+        <div className="acceptance-list">
+          {linkedIssues.map(({ label, issue }) => (
+            <LinkedIssueRow key={`${label}-${issue.identifier}`} issue={issue} label={label} />
+          ))}
+        </div>
+      ) : (
+        <StateNotice
+          title="No linked issues"
+          detail="The local Linear cache has no parent, blocker, or blocked-issue links for this issue."
+        />
+      )}
+    </section>
   );
 }
 
@@ -1387,56 +1584,88 @@ function GraphiteStackPanel({
 
 export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
+  const [issueListState, setIssueListState] = useState<WorkflowIssueListState>();
+  const [issueListError, setIssueListError] = useState<string>();
+  const [isIssueListLoading, setIsIssueListLoading] = useState(false);
   const [issueState, setIssueState] = useState<WorkflowIssueState>();
   const [apiError, setApiError] = useState<string>();
-  const [dynamicIssueIds, setDynamicIssueIds] = useState<string[]>(() => {
-    const initialIssueId = initialSelectedIssueId();
-    return hasStaticIssue(initialIssueId) ? [] : [initialIssueId];
-  });
-  const [dynamicIssueCards, setDynamicIssueCards] = useState<Record<string, IssueCard>>({});
+  const [isIssueStateLoading, setIsIssueStateLoading] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string>();
   const [workpadNote, setWorkpadNote] = useState("");
   const [riskAccepted, setRiskAccepted] = useState(false);
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<IssueStatus>();
   const selectedIssueState = issueState?.issue.issueId === selectedIssueId ? issueState : undefined;
+  const apiIssueCards = useMemo(
+    () => issueListState?.issues.map((issue) => issueCardFromLinearIssue(issue, issueListState.project.displayName)) ?? [],
+    [issueListState]
+  );
   const selected = useMemo(
-    () => issues.find((issue) => issue.id === selectedIssueId)
-      ?? (selectedIssueState
-        ? issueCardFromState(selectedIssueId, selectedIssueState)
-        : dynamicIssueCards[selectedIssueId] ?? issueCardFromState(selectedIssueId, undefined)),
-    [dynamicIssueCards, selectedIssueId, selectedIssueState]
+    () => selectedIssueState
+      ? issueCardFromState(selectedIssueId, selectedIssueState)
+      : apiIssueCards.find((issue) => issue.id === selectedIssueId)
+        ?? issueCardFromState(selectedIssueId, undefined),
+    [apiIssueCards, selectedIssueId, selectedIssueState]
   );
   const linearIssue = selectedIssueState?.issue.linear;
   const sidebarIssues = useMemo(
     () => {
-      const dynamicIssues = dynamicIssueIds
-        .filter((issueId) => !hasStaticIssue(issueId))
-        .map((issueId) => issueId === selected.id
-          ? selected
-          : dynamicIssueCards[issueId] ?? issueCardFromState(issueId, undefined));
-      const listedIssues = [...dynamicIssues, ...issues];
+      const listedIssues = apiIssueCards.map((issue) => issue.id === selected.id ? selected : issue);
 
-      return listedIssues.map((issue) => {
-        if (issue.id !== selected.id || !linearIssue) return issue;
+      if (!listedIssues.some((issue) => issue.id === selected.id)) {
+        return [selected, ...listedIssues];
+      }
 
-        return {
-          ...issue,
-          title: linearIssue.title,
-          status: issueStatusFromLinear(linearIssue.status, issue.status),
-          pr: linearIssue.pullRequests[0]?.title ?? issue.pr
-        };
-      });
+      return listedIssues;
     },
-    [dynamicIssueCards, dynamicIssueIds, linearIssue, selected]
+    [apiIssueCards, selected]
   );
+  const statusGroups = useMemo(
+    () => Array.from(new Set([
+      ...statuses,
+      ...sidebarIssues
+        .map((issue) => issue.status)
+        .filter((status) => !statuses.includes(status))
+    ])),
+    [sidebarIssues]
+  );
+  const visibleSidebarIssues = useMemo(
+    () => selectedStatusFilter
+      ? sidebarIssues.filter((issue) => issue.status === selectedStatusFilter)
+      : sidebarIssues,
+    [selectedStatusFilter, sidebarIssues]
+  );
+
+  const refreshIssueList = useCallback(async () => {
+    setIsIssueListLoading(true);
+    setIssueListError(undefined);
+
+    if (!window.workflowHub?.issues?.list) {
+      setIssueListError("Desktop API unavailable in renderer preview");
+      setIsIssueListLoading(false);
+      return;
+    }
+
+    try {
+      const state = await window.workflowHub.issues.list();
+      setIssueListState(state);
+      setIssueListError(undefined);
+    } catch (error: unknown) {
+      setIssueListError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsIssueListLoading(false);
+    }
+  }, []);
 
   const refreshIssueState = useCallback(async () => {
     setIssueState(undefined);
     setApiError(undefined);
+    setIsIssueStateLoading(true);
 
     if (!window.workflowHub?.issues?.getState) {
       setApiError("Desktop API unavailable in renderer preview");
+      setIsIssueStateLoading(false);
       return;
     }
 
@@ -1446,20 +1675,18 @@ export function App() {
       setApiError(undefined);
     } catch (error: unknown) {
       setApiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsIssueStateLoading(false);
     }
   }, [selectedIssueId]);
 
   useEffect(() => {
-    void refreshIssueState();
-  }, [refreshIssueState]);
+    void refreshIssueList();
+  }, [refreshIssueList]);
 
   useEffect(() => {
-    if (hasStaticIssue(selectedIssueId) || !selectedIssueState) return;
-    setDynamicIssueCards((current) => ({
-      ...current,
-      [selectedIssueId]: issueCardFromState(selectedIssueId, selectedIssueState)
-    }));
-  }, [selectedIssueId, selectedIssueState]);
+    void refreshIssueState();
+  }, [refreshIssueState]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1468,25 +1695,30 @@ export function App() {
     window.history.replaceState(null, "", url.toString());
   }, [selectedIssueId]);
 
-  const handleSelectIssue = useCallback((issueId: string) => {
-    const normalizedIssueId = issueId.toUpperCase();
-    if (!hasStaticIssue(normalizedIssueId)) {
-      setDynamicIssueIds((current) => current.includes(normalizedIssueId)
-        ? current
-        : [normalizedIssueId, ...current]);
+  useEffect(() => {
+    if (selectedStatusFilter && !statusGroups.includes(selectedStatusFilter)) {
+      setSelectedStatusFilter(undefined);
     }
-    setSelectedIssueId(normalizedIssueId);
+  }, [selectedStatusFilter, statusGroups]);
+
+  const handleSelectIssue = useCallback((issueId: string) => {
+    setSelectedIssueId(issueId.toUpperCase());
   }, []);
+
+  const refreshDashboard = useCallback(async () => {
+    await Promise.all([refreshIssueList(), refreshIssueState()]);
+  }, [refreshIssueList, refreshIssueState]);
 
   const workspacePath = selectedIssueState?.workspace.found ? selectedIssueState.workspace.path : selected.worktree;
   const branch = selectedIssueState?.workspace.found ? selectedIssueState.workspace.branch : selected.branch;
   const displayTitle = linearIssue?.title ?? selected.title;
   const displayStatus = linearIssue?.status ?? selected.status;
-  const displayProject = selectedIssueState?.project.displayName ?? selected.repo;
-  const doneCount = useMemo(
-    () => acceptanceCriteria.filter((criterion) => criterion.status === "Done").length,
-    []
-  );
+  const displayProject = selectedIssueState?.project.displayName ?? issueListState?.project.displayName ?? selected.repo;
+  const issueCountLabel = issueListState
+    ? `${issueListState.issues.length} issues`
+    : isIssueListLoading
+      ? "Loading issues"
+      : "Issue list offline";
   const platformLabel = window.workflowHub
     ? `${window.workflowHub.platform} / ${window.workflowHub.version}`
     : "browser preview";
@@ -1514,7 +1746,42 @@ export function App() {
     },
     [selectedIssueState]
   );
-  const visibleTimeline = localTimeline.length > 0 ? [...localTimeline, ...timeline] : timeline;
+  const visibleTimeline = localTimeline;
+  const selectedCache = selectedIssueState?.issue.linear?.cache ?? selectedIssueState?.issue.cache;
+  const listCache = issueListState?.cache;
+  const dashboardNotice = isIssueStateLoading || isIssueListLoading
+    ? {
+        title: "Loading local API data",
+        detail: "Reading Linear cache, workspace state, runner state, and PR providers.",
+        tone: "neutral" as Tone
+      }
+    : apiError
+      ? {
+          title: "Selected issue error",
+          detail: apiError,
+          tone: "danger" as Tone
+        }
+      : issueListError
+        ? {
+            title: issueListState ? "Issue list stale" : "Issue list error",
+            detail: issueListError,
+            tone: issueListState ? "warning" as Tone : "danger" as Tone
+          }
+        : selectedCache?.stale
+          ? {
+              title: "Selected issue cache is stale",
+              detail: cacheNoticeDetail(selectedCache, selectedIssueState?.issue.adapter),
+              tone: toneForCache(selectedCache),
+              compact: true
+            }
+          : listCache?.stale
+            ? {
+                title: "Issue list cache is stale",
+                detail: cacheNoticeDetail(listCache, issueListState?.adapter),
+                tone: toneForCache(listCache),
+                compact: true
+              }
+            : undefined;
 
   const handleSelectLinearAction = (action: LinearStatusAction) => {
     setPendingActionId(action.id);
@@ -1538,7 +1805,7 @@ export function App() {
       setPendingActionId(undefined);
       setWorkpadNote("");
       setRiskAccepted(false);
-      await refreshIssueState();
+      await refreshDashboard();
     } catch (error: unknown) {
       setWriteError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1576,10 +1843,17 @@ export function App() {
         </header>
 
         <section className="state-groups" aria-label="Issue states">
-          {statuses.map((status) => {
+          {statusGroups.map((status) => {
             const count = sidebarIssues.filter((issue) => issue.status === status).length;
+            const isActive = selectedStatusFilter === status;
             return (
-              <button key={status} className="state-row" type="button">
+              <button
+                aria-pressed={isActive}
+                key={status}
+                className={`state-row ${isActive ? "active" : ""}`}
+                onClick={() => setSelectedStatusFilter((current) => current === status ? undefined : status)}
+                type="button"
+              >
                 <span>{status}</span>
                 <strong>{count}</strong>
               </button>
@@ -1588,14 +1862,32 @@ export function App() {
         </section>
 
         <section className="issue-list" aria-label="Issues">
-          {sidebarIssues.map((issue) => (
-            <IssueRow
-              key={issue.id}
-              issue={issue}
-              active={issue.id === selected.id}
-              onSelect={handleSelectIssue}
+          {isIssueListLoading && !issueListState ? (
+            <StateNotice title="Loading issues" detail="Reading the Workflow Hub project list from the local API." />
+          ) : issueListError && !issueListState ? (
+            <StateNotice title="Issue list unavailable" detail={issueListError} tone="danger" />
+          ) : sidebarIssues.length === 0 ? (
+            <StateNotice
+              title="No issues cached"
+              detail="Run a Linear sync or refresh once credentials are available."
+              tone="warning"
             />
-          ))}
+          ) : visibleSidebarIssues.length === 0 ? (
+            <StateNotice
+              title={`No ${selectedStatusFilter} issues`}
+              detail="Click the active status again to show every cached issue."
+              tone="neutral"
+            />
+          ) : (
+            visibleSidebarIssues.map((issue) => (
+              <IssueRow
+                key={issue.id}
+                issue={issue}
+                active={issue.id === selected.id}
+                onSelect={handleSelectIssue}
+              />
+            ))
+          )}
         </section>
       </aside>
 
@@ -1609,20 +1901,44 @@ export function App() {
             </h2>
           </div>
           <div className="header-metrics" aria-label="Track progress">
-            <span>{doneCount}/{acceptanceCriteria.length} criteria</span>
+            <span>{issueCountLabel}</span>
+            <span>{selectedCache ? cacheStatusText(selectedCache) : "Cache pending"}</span>
             <StatusPill status={displayStatus} />
           </div>
         </header>
 
         <section className="action-strip" aria-label="Issue actions">
-          <ActionButton icon={<Laptop size={17} />} label="Worktree" />
-          <ActionButton icon={<Play size={17} />} label="Simulator" primary />
-          <ActionButton icon={<Smartphone size={17} />} label="Device" />
-          <ActionButton icon={<GitPullRequest size={17} />} label="PR" />
-          <ActionButton icon={<RotateCw size={17} />} label="Sync" />
+          <ActionButton disabled icon={<Laptop size={17} />} label="Worktree" />
+          <ActionButton
+            disabled={reviewState?.status !== "available"}
+            icon={<Play size={17} />}
+            label="Simulator"
+            primary={reviewState?.status === "available"}
+          />
+          <ActionButton disabled icon={<Smartphone size={17} />} label="Device" />
+          <ActionButton
+            disabled={!pullRequestState?.pullRequest?.url}
+            href={pullRequestState?.pullRequest?.url}
+            icon={<GitPullRequest size={17} />}
+            label="PR"
+          />
+          <ActionButton
+            disabled={isIssueListLoading || isIssueStateLoading}
+            icon={<RotateCw size={17} />}
+            label="Sync"
+            onClick={() => void refreshDashboard()}
+          />
         </section>
 
         <section className="workspace-content">
+          {dashboardNotice ? (
+            <StateNotice
+              detail={dashboardNotice.detail}
+              title={dashboardNotice.title}
+              tone={dashboardNotice.tone}
+            />
+          ) : null}
+
           <ResolutionPanel selectedIssue={selected} issueState={selectedIssueState} apiError={apiError} />
 
           <LinearActionBoard
@@ -1685,22 +2001,27 @@ export function App() {
             </div>
           </section>
 
-          <section className="acceptance-board" aria-label="Acceptance criteria">
-            <div className="section-heading">
-              <p className="eyebrow">Track scope</p>
-              <h2>Acceptance Criteria</h2>
-            </div>
-            <div className="acceptance-list">
-              {acceptanceCriteria.map((item) => (
-                <AcceptanceRow key={item.id} item={item} />
-              ))}
-            </div>
-          </section>
+          <LinkedIssueBoard
+            apiError={apiError}
+            isLoading={isIssueStateLoading}
+            linearIssue={linearIssue}
+          />
 
           <section className="conversation" aria-label="Timeline">
-            {visibleTimeline.map((event) => (
-              <TimelineRow key={event.id} event={event} />
-            ))}
+            {isIssueStateLoading ? (
+              <StateNotice title="Loading timeline" detail="Reading runner and workflow events for the selected issue." />
+            ) : apiError ? (
+              <StateNotice title="Timeline unavailable" detail={apiError} tone="danger" />
+            ) : visibleTimeline.length > 0 ? (
+              visibleTimeline.map((event) => (
+                <TimelineRow key={event.id} event={event} />
+              ))
+            ) : (
+              <StateNotice
+                title="No timeline events"
+                detail="No runner, Linear write, or review prompt events are recorded for this issue yet."
+              />
+            )}
           </section>
         </section>
 

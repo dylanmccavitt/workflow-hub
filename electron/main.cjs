@@ -86,6 +86,12 @@ async function getIssueState(_event, issueId) {
 
 ipcMain.handle("workflow-hub:get-issue-state", getIssueState);
 
+async function listIssues() {
+  return runWorkflowJsonCommand(["api-issues", "workflow-hub"]);
+}
+
+ipcMain.handle("workflow-hub:list-issues", listIssues);
+
 async function applyIssueAction(_event, input) {
   if (!input || typeof input !== "object") {
     throw new Error("action input must be an object.");

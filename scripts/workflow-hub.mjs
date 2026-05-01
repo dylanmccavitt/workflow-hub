@@ -26,6 +26,7 @@ function usage() {
 
 Usage:
   npm run workflow -- config [--json]
+  npm run workflow -- api-issues [PROJECT_ID] --json
   npm run workflow -- api-state [ISSUE_ID] --json
   npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--dry-run] [--json]
   npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--dry-run] [--json]
@@ -155,6 +156,32 @@ async function apiState(args) {
   const issueId = selectIssueId(rawIssueId, registry);
   const localApiService = createLocalApiService();
   const payload = await localApiService.getIssueState(issueId);
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+async function apiIssues(args) {
+  let projectId = "workflow-hub";
+  let json = false;
+
+  for (const arg of args) {
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown api-issues flag: ${arg}`);
+    }
+
+    projectId = arg;
+  }
+
+  if (!json) {
+    throw new Error("api-issues currently requires --json.");
+  }
+
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.listIssues({ projectId });
   console.log(JSON.stringify(payload, null, 2));
 }
 
@@ -803,6 +830,11 @@ async function main() {
 
   if (command === "api-state") {
     await apiState(args);
+    return;
+  }
+
+  if (command === "api-issues") {
+    await apiIssues(args);
     return;
   }
 

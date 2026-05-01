@@ -699,6 +699,146 @@ test("dispatches a Ready issue by creating a worktree, moving In Progress, and s
   assert.equal(gitCommands.some((command) => command.includes("worktree add -b feat/age-368-ready-to-worker-dispatch-loop")), true);
 });
 
+test("dispatch ignores Linear-inferred Symphony active state when endpoint has no active worker", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+  let started = false;
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: async ({ issueId, issue, workspace }) => {
+      const selectedIssue = {
+        identifier: issueId,
+        issueId: issue?.linear?.linearId,
+        linearStatus: issue?.linear?.status,
+        normalizedState: "active",
+        source: "linear",
+        reason: "No Symphony entry was found; Linear status is In Progress.",
+        workspacePath: workspace?.path
+      };
+
+      return {
+        status: "available",
+        running: true,
+        source: "endpoint",
+        endpoint: "http://127.0.0.1:4002/api/v1/state",
+        generatedAt: "2026-04-30T12:00:00.000Z",
+        detail: `${issueId} active from Linear inference only.`,
+        counts: { queue: 0, active: 1, complete: 0, blocked: 0, failed: 0, unknown: 0 },
+        issues: [selectedIssue],
+        selectedIssue,
+        adapter: {
+          id: "runner:symphony",
+          label: "Symphony runner",
+          status: "available",
+          detail: `${issueId} active from Linear inference only.`,
+          recoverable: false
+        }
+      };
+    },
+    startCodexLocalRun: async (input) => {
+      started = true;
+      assert.equal(input.issueId, "AGE-349");
+      assert.equal(input.dryRun, true);
+      assert.equal(input.workspace.path, "/worktrees/workflow-hub/AGE-349");
+      return {
+        issueId: input.issueId,
+        dryRun: true,
+        status: "ready",
+        prompt: input.prompt,
+        command: ["codex", "exec", "--json"],
+        cwd: input.workspace.path,
+        logPath: "/tmp/codex.jsonl",
+        summaryPath: "/tmp/codex-summary.md",
+        permissionBoundary: {
+          cwd: input.workspace.path,
+          sandbox: "workspace-write",
+          approvalPolicy: "never",
+          writableRoots: [input.workspace.path],
+          addDirs: []
+        }
+      };
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      root: "/worktrees/workflow-hub",
+      path: "/worktrees/workflow-hub/AGE-349",
+      matchType: "template"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  const result = await service.dispatchReadyIssue({
+    issueId: "AGE-349",
+    runnerKind: "codex",
+    confirmed: true,
+    dryRun: true
+  });
+
+  assert.equal(started, true);
+  assert.equal(result.statusAction, undefined);
+  assert.equal(result.runner.status, "ready");
+  assert.equal(result.event.type, "codex.run.ready");
+});
+
+test("dispatch blocks when Symphony endpoint reports an active issue for the same worktree", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
+    startCodexLocalRun: async () => {
+      throw new Error("dispatch should not start Codex while Symphony owns the worktree");
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      root: "/worktrees/workflow-hub",
+      path: "/worktrees/workflow-hub/AGE-349",
+      matchType: "template"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  await assert.rejects(
+    () => service.dispatchReadyIssue({
+      issueId: "AGE-349",
+      runnerKind: "codex",
+      confirmed: true,
+      dryRun: true
+    }),
+    /Symphony already has AGE-349 active/
+  );
+});
+
 test("dispatch blocks when a writable runner is already active for the same worktree", async (t) => {
   const repository = memoryRepository();
   t.after(() => repository.close());

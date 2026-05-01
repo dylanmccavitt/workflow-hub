@@ -907,6 +907,7 @@ function activeSymphonyIssueForWorkspace(symphonyState, workspacePath) {
   ].filter(Boolean);
 
   return issues.find((issue) => {
+    if (issue.source !== "endpoint") return false;
     if (!workspacePathsEqual(issue.workspacePath, workspacePath)) return false;
     return ["active", "queue"].includes(String(issue.normalizedState ?? "").toLowerCase());
   });

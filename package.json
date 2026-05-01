@@ -18,6 +18,7 @@
     "workflow": "node scripts/workflow-hub.mjs"
   },
   "dependencies": {
+    "@cursor/sdk": "^1.0.11",
     "better-sqlite3": "^12.9.0",
     "lucide-react": "latest",
     "react": "latest",

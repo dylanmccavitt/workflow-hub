@@ -42,6 +42,7 @@ import type {
 } from "./lib/types";
 import type {
   AdapterState,
+  CursorRunResult,
   GitHubCheck,
   GitHubPullRequestApiState,
   GitHubPullRequestDetails,
@@ -110,7 +111,7 @@ function runnerFromApiState(runner: RunnerApiState): RunnerBackend {
   return {
     name: runner.kind,
     role: runner.role,
-    state: labelForStatus(runner.status),
+    state: runner.latestRun ? labelForStatus(runner.latestRun.status) : labelForStatus(runner.status),
     detail: runner.detail
   };
 }
@@ -722,6 +723,121 @@ function FixPromptPanel({
   );
 }
 
+function CursorRunPanel({
+  issueId,
+  issueState,
+  onFinished
+}: {
+  issueId: string;
+  issueState: WorkflowIssueState | undefined;
+  onFinished: () => Promise<void>;
+}) {
+  const cursorRunner = issueState?.runners.find((runner) => runner.kind === "Cursor SDK");
+  const defaultModel = cursorRunner?.config?.model ?? "composer-2";
+  const [model, setModel] = useState(defaultModel);
+  const [prompt, setPrompt] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string>();
+  const [lastResult, setLastResult] = useState<CursorRunResult>();
+  const latestRun = cursorRunner?.latestRun;
+  const canRun = Boolean(
+    window.workflowHub?.issues?.startCursorRun
+    && issueState?.workspace.found
+    && prompt.trim().length > 0
+    && model.trim().length > 0
+    && !isRunning
+  );
+
+  useEffect(() => {
+    setModel(defaultModel);
+    setPrompt("");
+    setRunError(undefined);
+    setLastResult(undefined);
+  }, [defaultModel, issueId]);
+
+  const handleStartCursorRun = async () => {
+    if (!window.workflowHub?.issues?.startCursorRun) return;
+
+    setIsRunning(true);
+    setRunError(undefined);
+    try {
+      const result = await window.workflowHub.issues.startCursorRun({
+        issueId,
+        prompt,
+        model
+      });
+      setLastResult(result);
+      setPrompt("");
+      await onFinished();
+    } catch (error: unknown) {
+      setRunError(error instanceof Error ? error.message : String(error));
+      await onFinished();
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <section className="cursor-run-panel" aria-label="Cursor runner">
+      <div className="section-heading">
+        <p className="eyebrow">Cursor SDK</p>
+        <h2>Local Run</h2>
+      </div>
+
+      <div className="cursor-run-grid">
+        <label>
+          <span>Model</span>
+          <input
+            onChange={(event) => setModel(event.target.value)}
+            value={model}
+          />
+        </label>
+        <label className="cursor-prompt">
+          <span>Prompt</span>
+          <textarea
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Prompt for Cursor agent"
+            rows={5}
+            value={prompt}
+          />
+        </label>
+      </div>
+
+      <dl className="cursor-run-meta">
+        <div>
+          <dt>Worktree</dt>
+          <dd>{issueState?.workspace.path ?? "Not resolved"}</dd>
+        </div>
+        <div>
+          <dt>Config</dt>
+          <dd>{cursorRunner?.config?.configPath ?? "Not configured"}</dd>
+        </div>
+        <div>
+          <dt>Latest</dt>
+          <dd>{latestRun ? `${labelForStatus(latestRun.status)} | ${latestRun.summary ?? latestRun.id}` : "No local run"}</dd>
+        </div>
+      </dl>
+
+      {runError ? <p className="write-error">{runError}</p> : null}
+      {lastResult ? (
+        <p className="prompt-save-note">
+          {lastResult.runId ?? "Cursor run"} {labelForStatus(lastResult.status)}
+        </p>
+      ) : null}
+
+      <button
+        className="action-button primary"
+        disabled={!canRun}
+        onClick={handleStartCursorRun}
+        type="button"
+      >
+        <Play size={15} />
+        {isRunning ? "Running..." : "Run"}
+      </button>
+    </section>
+  );
+}
+
 function ResolutionPanel({
   selectedIssue,
   issueState,
@@ -823,7 +939,7 @@ function RunnerRow({ runner }: { runner: RunnerBackend }) {
     <div className="runner-row">
       <div>
         <span>{runner.name}</span>
-        <p>{runner.role}</p>
+        <p>{runner.detail || runner.role}</p>
       </div>
       <strong>{runner.state}</strong>
     </div>
@@ -1310,6 +1426,12 @@ export function App() {
             issueState={selectedIssueState}
             onSaved={refreshIssueState}
             pullRequestState={pullRequestState}
+          />
+
+          <CursorRunPanel
+            issueId={selected.id}
+            issueState={selectedIssueState}
+            onFinished={refreshIssueState}
           />
 
           <section className="flow-board" aria-label="Daily workflow">

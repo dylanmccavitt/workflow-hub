@@ -27,6 +27,7 @@ function usage() {
 Usage:
   npm run workflow -- config [--json]
   npm run workflow -- api-state [ISSUE_ID] --json
+  npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--dry-run] [--json]
   npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
   npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
@@ -340,6 +341,112 @@ function mergePayloadArray(payload, fieldName, extras) {
   return [...(payloadValue ?? []), ...extras];
 }
 
+function parseCursorRunArgs(args, registry) {
+  let issueId;
+  let json = false;
+  let dryRun = false;
+  let payload = {};
+  let prompt;
+  let model;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+
+    if (arg === "--payload") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--payload requires a value");
+      }
+      payload = decodePayload(args[index]);
+      continue;
+    }
+
+    if (arg === "--prompt") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--prompt requires a value");
+      }
+      prompt = args[index];
+      continue;
+    }
+
+    if (arg === "--model") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--model requires a value");
+      }
+      model = args[index];
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown cursor-run flag: ${arg}`);
+    }
+
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg)) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+
+    throw new Error(`Unexpected cursor-run argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = payload.issueId
+      ? normalizeIssueId(payload.issueId)
+      : selectIssueId(undefined, registry);
+  }
+
+  return {
+    ...payload,
+    issueId,
+    prompt: prompt ?? payload.prompt,
+    model: model ?? payload.model,
+    dryRun: dryRun || payload.dryRun === true,
+    json
+  };
+}
+
+async function cursorRun(args) {
+  const registry = readProjectConfig();
+  const parsed = parseCursorRunArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.startCursorRun(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (payload.dryRun) {
+    console.log([
+      `${payload.issueId} Cursor run ready.`,
+      `Model: ${payload.model}`,
+      `Worktree: ${payload.cwd}`,
+      `Config: ${payload.configPath}`
+    ].join("\n"));
+    return;
+  }
+
+  console.log([
+    `${payload.issueId} Cursor run ${payload.status}.`,
+    `Agent: ${payload.agentId ?? "unknown"}`,
+    `Run: ${payload.runId ?? "unknown"}`,
+    `Model: ${payload.model}`,
+    `Summary: ${payload.summary ?? "none"}`
+  ].join("\n"));
+}
+
 async function fixPrompt(args) {
   const registry = readProjectConfig();
   const parsed = parseReviewFixPromptArgs(args, registry);
@@ -542,6 +649,11 @@ try {
 
   if (command === "api-state") {
     await apiState(args);
+    process.exit(0);
+  }
+
+  if (command === "cursor-run") {
+    await cursorRun(args);
     process.exit(0);
   }
 

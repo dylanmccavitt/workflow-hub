@@ -30,6 +30,11 @@ import {
 import {
   buildReviewFixPromptDraft
 } from "./review-fix-prompt.mjs";
+import {
+  CURSOR_RUNNER_KIND,
+  cursorConfigForProject,
+  startCursorLocalRun as defaultStartCursorLocalRun
+} from "./cursor-runner.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -63,6 +68,8 @@ export function createLocalApiService(options = {}) {
   const readSymphonyState = options.readSymphonyState ?? defaultReadSymphonyState;
   const readGitHubPullRequestState = options.readGitHubPullRequestState ?? defaultReadGitHubPullRequestState;
   const readGraphiteStackState = options.readGraphiteStackState ?? defaultReadGraphiteStackState;
+  const startCursorLocalRun = options.startCursorLocalRun ?? defaultStartCursorLocalRun;
+  const cursorSdkLoader = options.cursorSdkLoader;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -361,6 +368,40 @@ export function createLocalApiService(options = {}) {
         generatedPrompt: draft.prompt,
         event
       };
+    },
+
+    async startCursorRun(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const prompt = sanitizeRequiredPrompt(input?.prompt);
+      const model = sanitizeOptionalString(input?.model, "model");
+      const dryRun = input?.dryRun === true;
+      const registry = readProjectConfig();
+      const project = selectProjectForIssue(issueId, registry.projects);
+
+      if (!project) {
+        throw new LocalApiValidationError("No configured project could be matched to this issue.");
+      }
+
+      const workspaceMatch = findWorkspace(issueId, registry);
+      if (!workspaceMatch) {
+        throw new LocalApiValidationError(`No issue workspace was found for ${issueId}.`);
+      }
+
+      const state = await this.getIssueState(issueId);
+      const repository = getRegistryRepository();
+
+      return startCursorLocalRun({
+        issueId,
+        prompt,
+        model,
+        dryRun,
+        project,
+        state,
+        workspace: state.workspace,
+        repository,
+        cursorSdkLoader,
+        clock
+      });
     }
   };
 }
@@ -375,7 +416,7 @@ function buildIssueResponse({
   symphonyState,
   pullRequestStates
 }) {
-  const runnerStates = buildRunnerStates(symphonyState);
+  const runnerStates = buildRunnerStates({ symphonyState, issue, project, workspace });
   const reviewStates = buildReviewStates(project);
   const normalizedPullRequestStates = buildPullRequestStates(pullRequestStates);
 
@@ -469,7 +510,8 @@ async function buildIssueState(issueId, project, options) {
         forceStale: syncResult.status !== "fresh",
         syncError: syncResult.error
       }),
-      events: repository.listIssueEvents(cachedIssue.id)
+      events: repository.listIssueEvents(cachedIssue.id),
+      runs: repository.listIssueRuns(cachedIssue.id)
     };
   }
 
@@ -515,6 +557,7 @@ function projectStateFromProject(project, adapter) {
     canonicalPath: project.canonicalPath,
     canonicalBranch: project.canonicalBranch,
     linear: project.linear,
+    runners: project.runners,
     iosConfigured: Boolean(project.ios),
     adapter
   };
@@ -587,7 +630,7 @@ function unavailableWorkspaceState(issueId, adapter) {
   };
 }
 
-function buildRunnerStates(symphonyState) {
+function buildRunnerStates({ symphonyState, issue, project, workspace }) {
   return [
     {
       kind: "Symphony",
@@ -613,19 +656,73 @@ function buildRunnerStates(symphonyState) {
         "AGE-363"
       )
     },
-    {
+    buildCursorRunnerState({ issue, project, workspace })
+  ];
+}
+
+function buildCursorRunnerState({ issue, project, workspace }) {
+  const latestRun = latestRunForKind(issue?.runs, CURSOR_RUNNER_KIND);
+  const config = project?.runners?.cursor;
+
+  if (!config) {
+    return {
       kind: "Cursor SDK",
-      role: "Agent harness",
-      status: "unavailable",
-      detail: "Cursor local/cloud agent state is not connected yet.",
-      adapter: unavailableAdapter(
+      role: "Local agent harness",
+      status: "not-configured",
+      detail: "Cursor SDK runner config is not defined for this project.",
+      latestRun,
+      adapter: notConfiguredAdapter(
         "runner:cursor",
         "Cursor SDK runner",
-        "Cursor SDK runner adapter unavailable until AGE-361 wires agent status and artifacts.",
-        "AGE-361"
+        "Cursor SDK runner config is not defined for this project."
       )
-    }
-  ];
+    };
+  }
+
+  if (workspace?.status !== "available" || !workspace.path) {
+    return {
+      kind: "Cursor SDK",
+      role: "Local agent harness",
+      status: "not-found",
+      detail: latestRun
+        ? `Latest Cursor run ${latestRun.status}, but the issue worktree is not currently resolved.`
+        : "Cursor local runs need a resolved issue worktree.",
+      config,
+      latestRun,
+      adapter: notFoundAdapter(
+        "runner:cursor",
+        "Cursor SDK runner",
+        "Cursor local runs need a resolved issue worktree."
+      )
+    };
+  }
+
+  const resolvedConfig = cursorConfigForProject({ runners: { cursor: config } }, workspace.path);
+  const latestDetail = latestRun
+    ? `Latest run ${latestRun.status}${latestRun.summary ? `: ${latestRun.summary}` : ""}`
+    : `Ready for local runs in ${workspace.path}.`;
+
+  return {
+    kind: "Cursor SDK",
+    role: "Local agent harness",
+    status: "available",
+    detail: `${latestDetail} Model ${resolvedConfig.model}; config ${resolvedConfig.resolvedConfigPath}.`,
+    config: {
+      model: resolvedConfig.model,
+      configPath: resolvedConfig.resolvedConfigPath,
+      apiKeyEnv: resolvedConfig.apiKeyEnv
+    },
+    latestRun,
+    adapter: availableAdapter(
+      "runner:cursor",
+      "Cursor SDK runner",
+      `Cursor SDK local runner is available for ${workspace.path}.`
+    )
+  };
+}
+
+function latestRunForKind(runs = [], runnerKind) {
+  return runs.find((run) => run.runnerKind === runnerKind);
 }
 
 function symphonyRunnerDetail(symphonyState) {
@@ -939,6 +1036,15 @@ function sanitizeOptionalNote(value) {
 function sanitizeRequiredPrompt(value) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new LocalApiValidationError("prompt must be a non-empty string.");
+  }
+
+  return value.trim();
+}
+
+function sanitizeOptionalString(value, fieldName) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new LocalApiValidationError(`${fieldName} must be a non-empty string when provided.`);
   }
 
   return value.trim();

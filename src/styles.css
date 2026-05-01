@@ -776,6 +776,11 @@ h1 {
   background: #202719;
 }
 
+.timeline-event.neutral .event-icon {
+  color: #72a7ff;
+  background: #142033;
+}
+
 .timeline-event.warning .event-icon {
   color: #f2b66d;
   background: #2a2114;

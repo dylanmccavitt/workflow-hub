@@ -1,6 +1,16 @@
 export type AdapterStatus = "available" | "unavailable" | "not-configured" | "not-found";
 export type EntityStatus = AdapterStatus;
 export type SymphonyNormalizedState = "queue" | "active" | "complete" | "blocked" | "failed" | "unknown";
+export type RunnerNormalizedState =
+  | "queued"
+  | "starting"
+  | "running"
+  | "blocked"
+  | "cancelling"
+  | "cancelled"
+  | "succeeded"
+  | "failed"
+  | "unknown";
 
 export interface AdapterState {
   id: string;
@@ -85,6 +95,27 @@ export interface WorkflowRunRecord {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RunnerTimelineEntry {
+  id: string;
+  source: "registry-event" | "run-record" | "symphony-state";
+  runnerKind: "Symphony" | "Codex" | "Cursor SDK" | string;
+  normalizedState: RunnerNormalizedState;
+  rawStatus?: string;
+  message: string;
+  detail?: string;
+  createdAt: string;
+  eventType?: string;
+  runId?: string;
+  rawRunnerId?: string;
+  agentId?: string;
+  sessionId?: string;
+  logPath?: string;
+  summaryPath?: string;
+  cwd?: string;
+  rawEvent?: Record<string, unknown>;
+  rawRunMetadata?: Record<string, unknown>;
 }
 
 export interface LinearStatusAction {
@@ -381,6 +412,7 @@ export interface WorkflowIssueState {
   project: ProjectApiState;
   workspace: WorkspaceApiState;
   symphony?: SymphonyApiState;
+  runTimeline: RunnerTimelineEntry[];
   linearStatusActions: LinearStatusAction[];
   runners: RunnerApiState[];
   reviews: ReviewApiState[];

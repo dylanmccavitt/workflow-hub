@@ -160,3 +160,65 @@ test("builds a unified timeline while preserving raw provider details", () => {
   assert.equal(symphonyEntry.rawRunnerId, "symphony-session-1");
   assert.equal(symphonyEntry.rawEvent.endpoint, "http://127.0.0.1:4002/api/v1/state");
 });
+
+test("ignores non-run issue events when building the runner timeline", () => {
+  const timeline = buildRunnerTimeline({
+    issue: {
+      events: [
+        {
+          id: "event-linear-status",
+          issueId: "linear-issue-AGE-365",
+          entityType: "linear",
+          entityId: "linear-issue-AGE-365",
+          type: "linear.status.updated",
+          message: "Linear status set to Human Review.",
+          payload: {
+            previousStatus: "In Progress",
+            nextStatus: "Human Review"
+          },
+          createdAt: "2026-05-01T12:07:00.000Z"
+        },
+        {
+          id: "event-review-prompt",
+          issueId: "linear-issue-AGE-365",
+          entityType: "review",
+          entityId: "review-fix-prompt",
+          type: "review.fix_prompt.saved",
+          message: "Review fix prompt saved.",
+          payload: {
+            selectedReviewCommentIds: ["comment-1"]
+          },
+          createdAt: "2026-05-01T12:08:00.000Z"
+        }
+      ],
+      runs: []
+    }
+  });
+
+  assert.deepEqual(timeline, []);
+});
+
+test("does not create Symphony timeline rows from Linear-inferred selected state", () => {
+  const timeline = buildRunnerTimeline({
+    issue: {
+      events: [],
+      runs: []
+    },
+    symphonyState: {
+      source: "endpoint",
+      endpoint: "http://127.0.0.1:4002/api/v1/state",
+      generatedAt: "2026-05-01T12:09:00.000Z",
+      selectedIssue: {
+        identifier: "AGE-365",
+        issueId: "linear-issue-AGE-365",
+        linearStatus: "In Progress",
+        normalizedState: "active",
+        source: "linear",
+        reason: "No Symphony entry was found; Linear status is In Progress.",
+        workspacePath: "/worktrees/workflow-hub/AGE-365"
+      }
+    }
+  });
+
+  assert.deepEqual(timeline, []);
+});

@@ -57,11 +57,16 @@ export function buildRunnerTimeline({ issue, symphonyState } = {}) {
   const entries = [];
 
   for (const event of arrayOrEmpty(issue?.events)) {
+    if (!isRunnerWorkflowEvent(event)) continue;
+
+    const run = runById.get(event?.entityId);
     if (event?.entityType === "run" && event.entityId) {
       runIdsWithEvents.add(event.entityId);
+    } else if (run) {
+      runIdsWithEvents.add(run.id);
     }
 
-    const entry = timelineEntryFromWorkflowEvent(event, runById.get(event?.entityId));
+    const entry = timelineEntryFromWorkflowEvent(event, run);
     if (entry) entries.push(entry);
   }
 
@@ -164,6 +169,7 @@ export function timelineEntryFromRunRecord(run) {
 export function timelineEntryFromSymphonyState(symphonyState) {
   const selected = symphonyState?.selectedIssue;
   if (!selected) return undefined;
+  if (selected.source && selected.source !== "endpoint") return undefined;
 
   const rawStatus = firstString(selected.symphonyStatus, selected.normalizedState, selected.linearStatus);
   const normalizedState = normalizeSymphonyRunnerState(selected.normalizedState ?? rawStatus);
@@ -203,6 +209,15 @@ function runnerKindFromEvent(event, run) {
   if (type.startsWith("cursor.")) return "Cursor SDK";
   if (type.startsWith("symphony.")) return "Symphony";
   return run?.runnerKind ?? firstString(event?.payload?.runnerKind, event?.payload?.runner) ?? "Unknown";
+}
+
+function isRunnerWorkflowEvent(event) {
+  if (!event || typeof event !== "object") return false;
+  const type = String(event.type ?? "");
+  return event.entityType === "run" ||
+    type.startsWith("codex.") ||
+    type.startsWith("cursor.") ||
+    type.startsWith("symphony.");
 }
 
 function stateFromEventType(eventType) {

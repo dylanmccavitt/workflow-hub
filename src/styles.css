@@ -441,6 +441,121 @@ h1 {
   gap: 10px;
 }
 
+.fix-prompt-panel {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #2a2b24;
+}
+
+.fix-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fix-prompt-source {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 142px;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #151712;
+}
+
+.fix-prompt-source h3 {
+  font-size: 13px;
+}
+
+.fix-prompt-source p,
+.prompt-save-note {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fix-selection-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fix-selection-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  color: #d9d4c8;
+}
+
+.fix-selection-row input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: #9ec27f;
+}
+
+.fix-selection-row span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fix-selection-row strong {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.fix-selection-row small {
+  color: #b9baad;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.fix-prompt-meta {
+  grid-template-columns: minmax(120px, 0.6fr) minmax(240px, 1.3fr) minmax(180px, 1fr);
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #11120f;
+}
+
+.prompt-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-editor span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b9baad;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prompt-editor textarea {
+  width: 100%;
+  min-height: 280px;
+  resize: vertical;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  padding: 12px;
+  color: #f5f0e6;
+  background: #10110f;
+  font:
+    12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.fix-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .secondary-button {
   min-height: 36px;
   padding: 0 12px;

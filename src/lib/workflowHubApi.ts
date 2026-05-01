@@ -374,11 +374,67 @@ export interface LinearIssueActionResult {
   event: WorkflowEvent;
 }
 
+export interface ReviewFixPromptSelection {
+  id: string;
+  label: string;
+  bodyPreview?: string;
+  detail?: string;
+  path?: string;
+  line?: number;
+  url?: string;
+  annotationCount?: number;
+  paths?: string[];
+  detailsUrl?: string;
+}
+
+export interface ReviewFixPromptInput {
+  issueId: string;
+  selectedReviewCommentIds?: string[];
+  selectedCheckIds?: string[];
+  ownedPaths?: string[];
+}
+
+export interface SaveReviewFixPromptInput extends ReviewFixPromptInput {
+  prompt: string;
+}
+
+export interface ReviewFixPromptDraft {
+  issueId: string;
+  title: string;
+  prompt: string;
+  generatedPrompt?: string;
+  selectedReviewCommentIds: string[];
+  selectedCheckIds: string[];
+  availableReviewComments: ReviewFixPromptSelection[];
+  availableCheckFailures: ReviewFixPromptSelection[];
+  ownedPaths: string[];
+  branch?: string;
+  worktree?: string;
+  headSha?: string;
+  generatedAt: string;
+  pullRequest?: {
+    provider: "GitHub";
+    number?: number;
+    title?: string;
+    url?: string;
+    state?: string;
+    reviewDecision?: string;
+    checksStatus?: string;
+  };
+}
+
+export interface ReviewFixPromptSaveResult extends ReviewFixPromptDraft {
+  generatedPrompt: string;
+  event: WorkflowEvent;
+}
+
 export interface WorkflowHubApi {
   version: string;
   platform: string;
   issues: {
     getState(issueId: string): Promise<WorkflowIssueState>;
     applyAction(input: LinearIssueActionInput): Promise<LinearIssueActionResult>;
+    draftFixPrompt(input: ReviewFixPromptInput): Promise<ReviewFixPromptDraft>;
+    saveFixPrompt(input: SaveReviewFixPromptInput): Promise<ReviewFixPromptSaveResult>;
   };
 }

@@ -71,6 +71,10 @@ function runWorkflowJsonCommand(args) {
   });
 }
 
+function encodeJsonPayload(value) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
 async function getIssueState(_event, issueId) {
   if (typeof issueId !== "string") {
     throw new Error("issueId must be a string.");
@@ -104,6 +108,45 @@ async function applyIssueAction(_event, input) {
 }
 
 ipcMain.handle("workflow-hub:apply-issue-action", applyIssueAction);
+
+async function draftFixPrompt(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("fix prompt input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+
+  return runWorkflowJsonCommand([
+    "fix-prompt",
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ]);
+}
+
+ipcMain.handle("workflow-hub:draft-fix-prompt", draftFixPrompt);
+
+async function saveFixPrompt(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("fix prompt input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+  if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
+    throw new Error("prompt must be a non-empty string.");
+  }
+
+  return runWorkflowJsonCommand([
+    "fix-prompt-save",
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ]);
+}
+
+ipcMain.handle("workflow-hub:save-fix-prompt", saveFixPrompt);
 
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {

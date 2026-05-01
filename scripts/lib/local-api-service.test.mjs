@@ -367,6 +367,122 @@ test("applies explicit Linear actions and records write events", async (t) => {
   assert.equal(events[0].payload.nextStatus, "Blocked");
 });
 
+test("drafts and saves review fix prompt events", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
+    readGitHubPullRequestState: () => ({
+      provider: "GitHub",
+      status: "available",
+      detail: "PR #12 open; checks failing; review changes requested.",
+      pullRequest: {
+        provider: "GitHub",
+        owner: "DylanMcCavitt",
+        repo: "workflow-hub",
+        number: 12,
+        title: "[AGE-349] Add local API boundary",
+        url: "https://github.com/DylanMcCavitt/workflow-hub/pull/12",
+        state: "OPEN",
+        isDraft: false,
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "DIRTY",
+        reviewDecision: "CHANGES_REQUESTED",
+        checks: {
+          status: "failing",
+          total: 1,
+          passing: 0,
+          pending: 0,
+          failing: 1,
+          skipped: 0,
+          checks: [
+            {
+              id: "check-1",
+              name: "typecheck",
+              state: "failing",
+              status: "COMPLETED",
+              conclusion: "FAILURE",
+              annotations: [
+                {
+                  path: "src/App.tsx",
+                  startLine: 42,
+                  message: "Prompt editor prop is missing."
+                }
+              ]
+            }
+          ]
+        },
+        reviewComments: [
+          {
+            id: "comment-1",
+            kind: "inline",
+            author: "reviewer",
+            body: "Include the selected review comment in the prompt.",
+            path: "scripts/lib/local-api-service.mjs",
+            line: 250
+          }
+        ]
+      },
+      adapter: {
+        id: "pr:github",
+        label: "GitHub PR",
+        status: "available",
+        detail: "PR #12 open; checks failing; review changes requested.",
+        recoverable: false
+      }
+    }),
+    readGraphiteStackState: graphiteFixtureState,
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      path: "/worktrees/workflow-hub/AGE-349"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary\n M src/App.tsx" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  const draft = await service.draftReviewFixPrompt({
+    issueId: "age-349",
+    selectedReviewCommentIds: ["comment-1"],
+    selectedCheckIds: ["check-1"]
+  });
+
+  assert.match(draft.prompt, /Include the selected review comment/);
+  assert.match(draft.prompt, /Prompt editor prop is missing/);
+  assert.match(draft.prompt, /Branch: feat\/age-349-local-api-boundary/);
+
+  const saved = await service.saveReviewFixPrompt({
+    issueId: "AGE-349",
+    selectedReviewCommentIds: ["comment-1"],
+    selectedCheckIds: ["check-1"],
+    prompt: `${draft.prompt}\n\nEdited before dispatch.`
+  });
+  const events = repository.listIssueEvents("linear-issue-AGE-349");
+
+  assert.equal(saved.event.type, "review.fix_prompt.generated");
+  assert.equal(saved.event.payload.edited, true);
+  assert.equal(events.length, 1);
+  assert.match(events[0].payload.prompt, /Edited before dispatch/);
+  assert.deepEqual(events[0].payload.ownedPaths, [
+    "scripts/lib/local-api-service.mjs",
+    "src/App.tsx"
+  ]);
+});
+
 test("returns recoverable unavailable state when project config cannot load", async () => {
   const service = createLocalApiService({
     readProjectConfig: () => {

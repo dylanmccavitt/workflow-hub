@@ -10,20 +10,21 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, read-only GitHub PR/check/review and Graphite stack adapters, and a main-process local API service for resolving selected issue state through typed IPC. Codex, Cursor SDK, and review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, read-only GitHub PR/check/review and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, and a main-process local API service for resolving selected issue state through typed IPC. Codex, Cursor SDK, and review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
 - `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
-- `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, and PR state contracts. It owns project config reads, scoped git probes, and unavailable-adapter responses.
+- `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, scoped git probes, timeline event writes, and unavailable-adapter responses.
+- `scripts/lib/review-fix-prompt.mjs`: Pure prompt builder that composes selected GitHub review comments, failing checks, Linear issue/workpad context, owned paths, and current worktree/branch into an editable fix prompt.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
 - `scripts/lib/linear-writes.mjs`: Explicit Linear status action adapter. It maps allowed workflow states, enforces confirmation for dispatching or externally visible states, updates the persistent `## Codex Workpad` comment by merging structured sections, and leaves passive sync read-only.
 - `scripts/lib/symphony-state.mjs`: Passive Symphony observability adapter. It reads the documented local JSON state endpoint, falls back to documented log files when the endpoint is unavailable, and normalizes queue, active, complete, blocked, failed, and unknown state without starting workers or mutating Linear.
 - `scripts/lib/github-pr-state.mjs`: Read-only GitHub adapter. It resolves PR candidates from Linear PR attachments, Linear branch names, and issue-worktree git branches, then reads PR status, merge/review state, check rollups, failing check annotations, latest review comments, and GitHub links through `gh`.
 - `scripts/lib/graphite-stack-state.mjs`: Read-only Graphite adapter. It detects the installed `gt` CLI and local Graphite initialization before running stack commands, resolves stack candidates from GitHub/Linear/workspace branch metadata, reads stack order through `gt log --stack`, direct parent/children through `gt parent`/`gt children`, and falls back to Graphite deep links when stack metadata is unavailable.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
-- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, GitHub PR/check/review state, Graphite stack state, and local event timeline for the selected issue.
+- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, editable PR-fix prompt panel, GitHub PR/check/review state, Graphite stack state, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -64,10 +65,12 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 ### Agent Dispatch
 
 1. User selects an issue and runner.
-2. Hub builds a prompt from issue/workpad/PR context.
-3. Runner starts in the correct worktree.
-4. Hub streams and stores status/events.
-5. Runner output links back to Linear and PR evidence.
+2. Hub builds an editable fix prompt from selected PR review comments, failing checks, issue/workpad context, owned paths, and current worktree/branch.
+3. User may edit and save the prompt into the local event timeline.
+4. Runner dispatch remains a separate explicit action; prompt generation never starts a runner by itself.
+5. Runner starts in the correct worktree only after explicit dispatch.
+6. Hub streams and stores status/events.
+7. Runner output links back to Linear and PR evidence.
 
 ### iOS Review
 

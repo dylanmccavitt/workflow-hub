@@ -126,11 +126,16 @@ function signalFromAdapter(adapter: AdapterState): SystemSignal {
 }
 
 function runnerFromApiState(runner: RunnerApiState): RunnerBackend {
+  const needsWorktree = runner.status === "not-found" && /worktree/i.test(runner.detail);
   return {
     name: runner.kind,
     role: runner.role,
-    state: runner.latestRun ? labelForStatus(runner.latestRun.status) : labelForStatus(runner.status),
-    detail: runner.detail
+    state: needsWorktree
+      ? "Needs Worktree"
+      : runner.latestRun ? labelForStatus(runner.latestRun.status) : labelForStatus(runner.status),
+    detail: needsWorktree
+      ? "Runner is configured; resolve this issue's worktree before starting a local run."
+      : runner.detail
   };
 }
 
@@ -1427,7 +1432,7 @@ function LinkedIssueBoard({
 
 function RunnerRow({ runner }: { runner: RunnerBackend }) {
   return (
-    <div className={`runner-row ${classNameFor(runner.state)}`}>
+    <div className={`runner-row ${classNameFor(runner.state)}`} title={runner.detail || runner.role}>
       <span className="runner-mark">
         {runner.name === "Symphony" ? <Workflow size={14} /> : runner.name === "Codex" ? <Terminal size={14} /> : <Play size={14} />}
       </span>

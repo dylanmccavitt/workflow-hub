@@ -3,21 +3,31 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
-  Bot,
+  Box,
+  ChevronRight,
   CheckCircle2,
   CircleDot,
-  Command,
-  Database,
+  Copy,
+  ExternalLink,
   FileText,
+  FolderOpen,
   GitBranch,
+  GitFork,
   GitPullRequest,
-  Laptop,
+  History,
+  LayoutGrid,
   MessageSquareText,
+  MessageCircle,
+  PanelRight,
   Play,
   RotateCw,
   Save,
+  Send,
   ShieldAlert,
+  SlidersHorizontal,
+  Sparkles,
   Smartphone,
+  SquarePen,
   Terminal,
   Workflow
 } from "lucide-react";
@@ -116,11 +126,16 @@ function signalFromAdapter(adapter: AdapterState): SystemSignal {
 }
 
 function runnerFromApiState(runner: RunnerApiState): RunnerBackend {
+  const needsWorktree = runner.status === "not-found" && /worktree/i.test(runner.detail);
   return {
     name: runner.kind,
     role: runner.role,
-    state: runner.latestRun ? labelForStatus(runner.latestRun.status) : labelForStatus(runner.status),
-    detail: runner.detail
+    state: needsWorktree
+      ? "Needs Worktree"
+      : runner.latestRun ? labelForStatus(runner.latestRun.status) : labelForStatus(runner.status),
+    detail: needsWorktree
+      ? "Runner is configured; resolve this issue's worktree before starting a local run."
+      : runner.detail
   };
 }
 
@@ -440,6 +455,10 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`status-pill ${classNameFor(status)}`}>{status}</span>;
 }
 
+function StatusDot({ status }: { status: string }) {
+  return <span aria-hidden="true" className={`status-dot ${classNameFor(status)}`} />;
+}
+
 function CriterionPill({ status }: { status: CriterionStatus }) {
   return <span className={`criterion-pill ${classNameFor(status)}`}>{status}</span>;
 }
@@ -478,6 +497,59 @@ function IssueRow({
         <span>{issue.runner}</span>
       </span>
     </button>
+  );
+}
+
+function IssueStateGroup({
+  status,
+  issues,
+  active,
+  selectedIssueId,
+  onToggle,
+  onSelect
+}: {
+  status: IssueStatus;
+  issues: IssueCard[];
+  active: boolean;
+  selectedIssueId: string;
+  onToggle: () => void;
+  onSelect: (issueId: string) => void;
+}) {
+  const visibleIssues = active ? issues : issues.slice(0, 4);
+  return (
+    <section className={`state-group-block ${active ? "active" : ""}`}>
+      <button
+        aria-pressed={active}
+        className="state-group-header"
+        onClick={onToggle}
+        type="button"
+      >
+        <span>
+          <StatusDot status={status} />
+          {status}
+        </span>
+        <strong>{issues.length}</strong>
+      </button>
+      {visibleIssues.length > 0 ? (
+        <div className="state-group-issues">
+          {visibleIssues.map((issue) => (
+            <IssueRow
+              active={issue.id === selectedIssueId}
+              issue={issue}
+              key={issue.id}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="state-group-empty">No cached issues</p>
+      )}
+      {!active && issues.length > visibleIssues.length ? (
+        <button className="state-group-more" onClick={onToggle} type="button">
+          {issues.length - visibleIssues.length} more
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -1360,12 +1432,19 @@ function LinkedIssueBoard({
 
 function RunnerRow({ runner }: { runner: RunnerBackend }) {
   return (
-    <div className="runner-row">
+    <div className={`runner-row ${classNameFor(runner.state)}`} title={runner.detail || runner.role}>
+      <span className="runner-mark">
+        {runner.name === "Symphony" ? <Workflow size={14} /> : runner.name === "Codex" ? <Terminal size={14} /> : <Play size={14} />}
+      </span>
       <div>
         <span>{runner.name}</span>
         <p>{runner.detail || runner.role}</p>
       </div>
-      <strong>{runner.state}</strong>
+      <strong>
+        <StatusDot status={runner.state} />
+        {runner.state}
+      </strong>
+      <ChevronRight size={15} />
     </div>
   );
 }
@@ -1579,6 +1658,90 @@ function GraphiteStackPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function IssueFact({
+  label,
+  value,
+  href
+}: {
+  label: string;
+  value: React.ReactNode;
+  href?: string;
+}) {
+  const body = (
+    <>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </>
+  );
+
+  return href ? (
+    <a className="issue-fact linked" href={href} rel="noreferrer" target="_blank">
+      {body}
+      <ExternalLink size={14} />
+    </a>
+  ) : (
+    <div className="issue-fact">{body}</div>
+  );
+}
+
+function InspectorDatum({
+  label,
+  value,
+  icon
+}: {
+  label: string;
+  value: React.ReactNode;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="inspector-datum">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {icon ? <span className="inspector-datum-icon">{icon}</span> : null}
+    </div>
+  );
+}
+
+function ReviewActionDock({
+  actions,
+  currentStatus,
+  pendingActionId,
+  disabled,
+  onSelect
+}: {
+  actions: LinearStatusAction[];
+  currentStatus: string;
+  pendingActionId: string | undefined;
+  disabled: boolean;
+  onSelect: (action: LinearStatusAction) => void;
+}) {
+  const featuredActions = ["human-review", "needs-fixes", "merging", "done"]
+    .map((id) => actions.find((action) => action.id === id))
+    .filter((action): action is LinearStatusAction => Boolean(action));
+
+  return (
+    <div className="review-action-dock">
+      {featuredActions.map((action) => {
+        const isCurrent = action.stateName === currentStatus;
+        const isPending = action.id === pendingActionId;
+        return (
+          <button
+            className={`review-action-button ${isCurrent ? "current" : ""} ${isPending ? "pending" : ""}`}
+            disabled={disabled}
+            key={action.id}
+            onClick={() => onSelect(action)}
+            title={action.label}
+            type="button"
+          >
+            {action.id === "human-review" || action.id === "done" ? <CheckCircle2 size={17} /> : <MessageCircle size={17} />}
+            <span>{action.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1813,305 +1976,373 @@ export function App() {
     }
   };
 
+  const primaryPullRequest = pullRequestState?.pullRequest;
+  const prHref = primaryPullRequest?.url ?? linearPullRequest?.url;
+  const prLabel = primaryPullRequest
+    ? `#${primaryPullRequest.number}`
+    : linearPullRequest?.number
+      ? `#${linearPullRequest.number}`
+      : labelForStatus(pullRequestState?.status ?? "not-found");
+  const reviewSummary = reviewLabel(reviewState)
+    ?? (primaryPullRequest ? labelForStatus(primaryPullRequest.reviewDecision) : pullRequestLabel(pullRequestState));
+  const runnerSummary = selectedIssueState?.symphony?.selectedIssue
+    ? `Symphony ${labelForStatus(selectedIssueState.symphony.selectedIssue.normalizedState)}`
+    : visibleRunners.map((runner) => `${runner.name} ${runner.state}`).join(" | ");
+  const updatedLabel = linearIssue?.updatedAt ? formatTimestamp(linearIssue.updatedAt) : selected.lastEvent;
+  const timelineCount = visibleTimeline.length;
+  const checkCount = primaryPullRequest?.checks.total ?? 0;
+  const reviewCommentCount = primaryPullRequest?.reviewComments.length ?? 0;
+  const commitLabel = selectedIssueState?.workspace.headSha ? shortSha(selectedIssueState.workspace.headSha) : "Unknown";
+
   return (
     <main className="app-shell">
-      <nav className="rail" aria-label="Primary">
-        <div className="brand-mark">WH</div>
-        <button className="rail-button active" title="Workflow" type="button">
-          <Workflow size={20} />
-        </button>
-        <button className="rail-button" title="Agents" type="button">
-          <Bot size={20} />
-        </button>
-        <button className="rail-button" title="Registry" type="button">
-          <Database size={20} />
-        </button>
-        <button className="rail-button" title="Terminal" type="button">
-          <Terminal size={20} />
-        </button>
-      </nav>
-
-      <aside className="sidebar">
-        <header className="sidebar-header">
-          <div>
-            <p className="eyebrow">Local control plane</p>
-            <h1>Workflow Hub</h1>
+      <div className="cockpit-grid">
+        <nav className="rail" aria-label="Primary">
+          <div className="brand-mark" aria-label="Workflow Hub">
+            <Workflow size={25} />
           </div>
-          <button className="icon-button" title="Command menu" type="button">
-            <Command size={18} />
+          <button className="rail-button active" title="Issues" type="button">
+            <LayoutGrid size={20} />
           </button>
-        </header>
+          <button className="rail-button" title="Branches" type="button">
+            <GitFork size={20} />
+          </button>
+          <button className="rail-button" title="Runs" type="button">
+            <Play size={20} />
+          </button>
+          <button className="rail-button" title="History" type="button">
+            <History size={20} />
+          </button>
+          <button className="rail-button" title="Registry" type="button">
+            <Box size={20} />
+          </button>
+          <button className="rail-button" title="Terminal" type="button">
+            <Terminal size={20} />
+          </button>
+          <button className="rail-button rail-settings" title="Settings" type="button">
+            <PanelRight size={20} />
+          </button>
+        </nav>
 
-        <section className="state-groups" aria-label="Issue states">
-          {statusGroups.map((status) => {
-            const count = sidebarIssues.filter((issue) => issue.status === status).length;
-            const isActive = selectedStatusFilter === status;
-            return (
-              <button
-                aria-pressed={isActive}
-                key={status}
-                className={`state-row ${isActive ? "active" : ""}`}
-                onClick={() => setSelectedStatusFilter((current) => current === status ? undefined : status)}
-                type="button"
-              >
-                <span>{status}</span>
-                <strong>{count}</strong>
-              </button>
-            );
-          })}
-        </section>
-
-        <section className="issue-list" aria-label="Issues">
-          {isIssueListLoading && !issueListState ? (
-            <StateNotice title="Loading issues" detail="Reading the Workflow Hub project list from the local API." />
-          ) : issueListError && !issueListState ? (
-            <StateNotice title="Issue list unavailable" detail={issueListError} tone="danger" />
-          ) : sidebarIssues.length === 0 ? (
-            <StateNotice
-              title="No issues cached"
-              detail="Run a Linear sync or refresh once credentials are available."
-              tone="warning"
-            />
-          ) : visibleSidebarIssues.length === 0 ? (
-            <StateNotice
-              title={`No ${selectedStatusFilter} issues`}
-              detail="Click the active status again to show every cached issue."
-              tone="neutral"
-            />
-          ) : (
-            visibleSidebarIssues.map((issue) => (
-              <IssueRow
-                key={issue.id}
-                issue={issue}
-                active={issue.id === selected.id}
-                onSelect={handleSelectIssue}
-              />
-            ))
-          )}
-        </section>
-      </aside>
-
-      <section className="workspace">
-        <header className="workspace-header">
-          <div>
-            <p className="eyebrow">{displayProject}</p>
-            <h2>
-              <span>{selected.id}</span>
-              {displayTitle}
-            </h2>
-          </div>
-          <div className="header-metrics" aria-label="Track progress">
-            <span>{issueCountLabel}</span>
-            <span>{selectedCache ? cacheStatusText(selectedCache) : "Cache pending"}</span>
-            <StatusPill status={displayStatus} />
-          </div>
-        </header>
-
-        <section className="action-strip" aria-label="Issue actions">
-          <ActionButton disabled icon={<Laptop size={17} />} label="Worktree" />
-          <ActionButton
-            disabled={reviewState?.status !== "available"}
-            icon={<Play size={17} />}
-            label="Simulator"
-            primary={reviewState?.status === "available"}
-          />
-          <ActionButton disabled icon={<Smartphone size={17} />} label="Device" />
-          <ActionButton
-            disabled={!pullRequestState?.pullRequest?.url}
-            href={pullRequestState?.pullRequest?.url}
-            icon={<GitPullRequest size={17} />}
-            label="PR"
-          />
-          <ActionButton
-            disabled={isIssueListLoading || isIssueStateLoading}
-            icon={<RotateCw size={17} />}
-            label="Sync"
-            onClick={() => void refreshDashboard()}
-          />
-        </section>
-
-        <section className="workspace-content">
-          {dashboardNotice ? (
-            <StateNotice
-              detail={dashboardNotice.detail}
-              title={dashboardNotice.title}
-              tone={dashboardNotice.tone}
-            />
-          ) : null}
-
-          <ResolutionPanel selectedIssue={selected} issueState={selectedIssueState} apiError={apiError} />
-
-          <LinearActionBoard
-            actions={linearActions}
-            currentStatus={displayStatus}
-            disabled={isWriting || !window.workflowHub?.issues?.applyAction}
-            onSelect={handleSelectLinearAction}
-            pendingActionId={pendingActionId}
-          />
-
-          {pendingAction ? (
-            <ConfirmationBoundary
-              action={pendingAction}
-              currentStatus={displayStatus}
-              isWriting={isWriting}
-              issueId={selected.id}
-              note={workpadNote}
-              onApply={handleApplyLinearAction}
-              onCancel={() => {
-                setPendingActionId(undefined);
-                setWorkpadNote("");
-                setRiskAccepted(false);
-                setWriteError(undefined);
-              }}
-              onNoteChange={setWorkpadNote}
-              onRiskAcceptedChange={setRiskAccepted}
-              riskAccepted={riskAccepted}
-              writeError={writeError}
-            />
-          ) : null}
-
-          <FixPromptPanel
-            issueId={selected.id}
-            issueState={selectedIssueState}
-            onSaved={refreshIssueState}
-            pullRequestState={pullRequestState}
-          />
-
-          <CodexRunPanel
-            issueId={selected.id}
-            issueState={selectedIssueState}
-            onFinished={refreshIssueState}
-          />
-
-          <CursorRunPanel
-            issueId={selected.id}
-            issueState={selectedIssueState}
-            onFinished={refreshIssueState}
-          />
-
-          <section className="flow-board" aria-label="Daily workflow">
-            <div className="section-heading">
-              <p className="eyebrow">Daily flow</p>
-              <h2>Ready to Done</h2>
+        <aside className="sidebar">
+          <header className="sidebar-header">
+            <div>
+              <p className="eyebrow">Issues</p>
+              <h1>{displayProject}</h1>
             </div>
-            <div className="flow-grid">
-              {dailyFlow.map((step, index) => (
-                <FlowStep key={step.label} step={step} index={index} />
+            <div className="header-tools">
+              <button className="icon-button" title="Filter states" type="button">
+                <SlidersHorizontal size={18} />
+              </button>
+              <button className="icon-button" title="Draft issue" type="button">
+                <SquarePen size={18} />
+              </button>
+            </div>
+          </header>
+
+          <section className="state-groups" aria-label="Issue states">
+            {isIssueListLoading && !issueListState ? (
+              <StateNotice title="Loading issues" detail="Reading the Workflow Hub project list from the local API." />
+            ) : issueListError && !issueListState ? (
+              <StateNotice title="Issue list unavailable" detail={issueListError} tone="danger" />
+            ) : sidebarIssues.length === 0 ? (
+              <StateNotice
+                title="No issues cached"
+                detail="Run a Linear sync or refresh once credentials are available."
+                tone="warning"
+              />
+            ) : (
+              statusGroups
+                .filter((status) => selectedStatusFilter === status || sidebarIssues.some((issue) => issue.status === status))
+                .map((status) => {
+                  const issues = sidebarIssues.filter((issue) => issue.status === status);
+                  const isActive = selectedStatusFilter === status;
+                  return (
+                    <IssueStateGroup
+                      active={isActive}
+                      issues={issues}
+                      key={status}
+                      onSelect={handleSelectIssue}
+                      onToggle={() => setSelectedStatusFilter((current) => current === status ? undefined : status)}
+                      selectedIssueId={selected.id}
+                      status={status}
+                    />
+                  );
+                })
+            )}
+          </section>
+        </aside>
+
+        <section className="workspace">
+          <header className="workspace-header">
+            <div>
+              <p className="eyebrow">Workflow Hub</p>
+              <h2>Issue Workspace</h2>
+            </div>
+            <div className="header-metrics" aria-label="Track progress">
+              <span>{issueCountLabel}</span>
+              <span>{selectedCache ? cacheStatusText(selectedCache) : "Cache pending"}</span>
+              <StatusPill status={displayStatus} />
+            </div>
+          </header>
+
+          <section className="workspace-content">
+            {dashboardNotice ? (
+              <StateNotice
+                compact={dashboardNotice.compact}
+                detail={dashboardNotice.detail}
+                title={dashboardNotice.title}
+                tone={dashboardNotice.tone}
+              />
+            ) : null}
+
+            <section className="selected-issue-workspace" aria-label="Selected issue workspace">
+              <div className="selected-issue-head">
+                <div>
+                  <div className="selected-issue-kicker">
+                    <strong>{selected.id}</strong>
+                    <StatusPill status={displayStatus} />
+                  </div>
+                  <h3>{displayTitle}</h3>
+                </div>
+                <button
+                  className="icon-button"
+                  disabled={isIssueListLoading || isIssueStateLoading}
+                  onClick={() => void refreshDashboard()}
+                  title="Refresh local state"
+                  type="button"
+                >
+                  <RotateCw size={18} />
+                </button>
+              </div>
+
+              <div className="primary-actions" aria-label="Issue actions">
+                <ActionButton disabled icon={<FolderOpen size={17} />} label="Open Zed" />
+                <ActionButton
+                  disabled={reviewState?.status !== "available"}
+                  icon={<Play size={17} />}
+                  label="Run Simulator"
+                  primary={reviewState?.status === "available"}
+                />
+                <ActionButton disabled icon={<Smartphone size={17} />} label="Run Device" />
+                <ActionButton
+                  disabled={!prHref}
+                  href={prHref}
+                  icon={<GitPullRequest size={17} />}
+                  label="Show PR"
+                />
+              </div>
+
+              <div className="issue-fact-grid">
+                <IssueFact label="Worktree" value={workspacePath ?? "Not found"} />
+                <IssueFact label="Branch" value={branch ?? "Unknown"} />
+                <IssueFact href={prHref} label="PR" value={prLabel} />
+                <IssueFact label="Review" value={reviewSummary} />
+                <IssueFact label="Runner" value={runnerSummary || "No runner state"} />
+                <IssueFact label="Updated" value={updatedLabel} />
+              </div>
+
+              <div className="issue-tabbar" aria-label="Issue views">
+                <button className="active" type="button">Timeline <span>{timelineCount}</span></button>
+                <button type="button">Files <span>{reviewCommentCount}</span></button>
+                <button type="button">Checks <span>{checkCount}</span></button>
+                <button type="button">Commit <span>{commitLabel}</span></button>
+              </div>
+
+              <section className="conversation cockpit-timeline" aria-label="Timeline">
+                {isIssueStateLoading ? (
+                  <StateNotice title="Loading timeline" detail="Reading runner and workflow events for the selected issue." />
+                ) : apiError ? (
+                  <StateNotice title="Timeline unavailable" detail={apiError} tone="danger" />
+                ) : visibleTimeline.length > 0 ? (
+                  visibleTimeline.map((event) => (
+                    <TimelineRow key={event.id} event={event} />
+                  ))
+                ) : (
+                  <StateNotice
+                    title="No timeline events"
+                    detail="No runner, Linear write, or review prompt events are recorded for this issue yet."
+                  />
+                )}
+              </section>
+            </section>
+
+            <section className="workspace-lower" aria-label="Workflow controls">
+              <LinearActionBoard
+                actions={linearActions}
+                currentStatus={displayStatus}
+                disabled={isWriting || !window.workflowHub?.issues?.applyAction}
+                onSelect={handleSelectLinearAction}
+                pendingActionId={pendingActionId}
+              />
+
+              {pendingAction ? (
+                <ConfirmationBoundary
+                  action={pendingAction}
+                  currentStatus={displayStatus}
+                  isWriting={isWriting}
+                  issueId={selected.id}
+                  note={workpadNote}
+                  onApply={handleApplyLinearAction}
+                  onCancel={() => {
+                    setPendingActionId(undefined);
+                    setWorkpadNote("");
+                    setRiskAccepted(false);
+                    setWriteError(undefined);
+                  }}
+                  onNoteChange={setWorkpadNote}
+                  onRiskAcceptedChange={setRiskAccepted}
+                  riskAccepted={riskAccepted}
+                  writeError={writeError}
+                />
+              ) : null}
+
+              <FixPromptPanel
+                issueId={selected.id}
+                issueState={selectedIssueState}
+                onSaved={refreshIssueState}
+                pullRequestState={pullRequestState}
+              />
+
+              <div className="runner-workbench">
+                <CodexRunPanel
+                  issueId={selected.id}
+                  issueState={selectedIssueState}
+                  onFinished={refreshIssueState}
+                />
+
+                <CursorRunPanel
+                  issueId={selected.id}
+                  issueState={selectedIssueState}
+                  onFinished={refreshIssueState}
+                />
+              </div>
+
+              <LinkedIssueBoard
+                apiError={apiError}
+                isLoading={isIssueStateLoading}
+                linearIssue={linearIssue}
+              />
+
+              <section className="flow-board" aria-label="Daily workflow">
+                <div className="section-heading">
+                  <p className="eyebrow">Daily flow</p>
+                  <h2>Ready to Done</h2>
+                </div>
+                <div className="flow-grid">
+                  {dailyFlow.map((step, index) => (
+                    <FlowStep key={step.label} step={step} index={index} />
+                  ))}
+                </div>
+              </section>
+            </section>
+          </section>
+        </section>
+
+        <aside className="inspector">
+          <header className="inspector-tabs" aria-label="Inspector views">
+            <button className="active" type="button">Workspace</button>
+            <button type="button">Runners</button>
+            <button type="button">Review</button>
+          </header>
+
+          <section className="inspector-section workspace-inspector">
+            <h2>Workspace</h2>
+            <div className="inspector-data-list">
+              <InspectorDatum icon={<FolderOpen size={16} />} label="Path" value={workspacePath ?? "Not found"} />
+              <InspectorDatum icon={<Copy size={16} />} label="Branch" value={branch ?? "Unknown"} />
+              <InspectorDatum label="Base" value={selectedIssueState?.project.canonicalBranch ?? "main"} />
+              <InspectorDatum icon={<ExternalLink size={16} />} label="PR" value={prLabel} />
+              <InspectorDatum label="Status" value={<StatusPill status={displayStatus} />} />
+              <InspectorDatum label="Updated" value={updatedLabel} />
+              <InspectorDatum label="Bridge" value={platformLabel} />
+            </div>
+          </section>
+
+          <section className="inspector-section">
+            <h2>Runners</h2>
+            <div className="runner-list">
+              {visibleRunners.map((runner) => (
+                <RunnerRow key={runner.name} runner={runner} />
               ))}
             </div>
           </section>
 
-          <LinkedIssueBoard
-            apiError={apiError}
-            isLoading={isIssueStateLoading}
-            linearIssue={linearIssue}
-          />
-
-          <section className="conversation" aria-label="Timeline">
-            {isIssueStateLoading ? (
-              <StateNotice title="Loading timeline" detail="Reading runner and workflow events for the selected issue." />
-            ) : apiError ? (
-              <StateNotice title="Timeline unavailable" detail={apiError} tone="danger" />
-            ) : visibleTimeline.length > 0 ? (
-              visibleTimeline.map((event) => (
-                <TimelineRow key={event.id} event={event} />
-              ))
-            ) : (
-              <StateNotice
-                title="No timeline events"
-                detail="No runner, Linear write, or review prompt events are recorded for this issue yet."
-              />
-            )}
+          <section className="inspector-section review-inspector">
+            <h2>Review</h2>
+            <ReviewActionDock
+              actions={linearActions}
+              currentStatus={displayStatus}
+              disabled={isWriting || !window.workflowHub?.issues?.applyAction}
+              onSelect={handleSelectLinearAction}
+              pendingActionId={pendingActionId}
+            />
+            <div className="review-line">
+              <Workflow size={16} />
+              <span>{reviewSummary}</span>
+            </div>
           </section>
-        </section>
 
-        <footer className="command-bar">
-          <Command size={17} />
-          <span>{selected.id} command target: {branch ?? "unresolved branch"}</span>
+          <PullRequestPanel pullRequestState={pullRequestState} linearPullRequest={linearPullRequest} />
+          <GraphiteStackPanel stackState={graphiteState} />
+
+          <section className="inspector-section">
+            <h2>Linear</h2>
+            <dl>
+              <div>
+                <dt>Priority</dt>
+                <dd>{linearIssue?.priorityLabel ?? "Unknown"}</dd>
+              </div>
+              <div>
+                <dt>Labels</dt>
+                <dd>{labelsText(linearIssue)}</dd>
+              </div>
+              <div>
+                <dt>Parent</dt>
+                <dd>{issueReferenceText(linearIssue?.parent)}</dd>
+              </div>
+              <div>
+                <dt>Blockers</dt>
+                <dd>{issueReferenceListText(linearIssue?.blockers ?? [])}</dd>
+              </div>
+              <div>
+                <dt>Workpad</dt>
+                <dd>{workpadText(linearIssue)}</dd>
+              </div>
+              <div>
+                <dt>Cache</dt>
+                <dd>{cacheText(selectedIssueState)}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="inspector-section">
+            <h2>Sources</h2>
+            <div className="signal-list">
+              {sourceSignals.map((signal) => (
+                <SystemSignalRow key={signal.label} signal={signal} />
+              ))}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <footer className="command-bar">
+        <div className="command-prompt">
           <kbd>Cmd K</kbd>
-        </footer>
-      </section>
-
-      <aside className="inspector">
-        <section className="inspector-section">
-          <h2>Workspace</h2>
-          <dl>
-            <div>
-              <dt>Worktree</dt>
-              <dd>{workspacePath ?? "Not found"}</dd>
-            </div>
-            <div>
-              <dt>Branch</dt>
-              <dd>{branch ?? "Unknown"}</dd>
-            </div>
-            <div>
-              <dt>Desktop bridge</dt>
-              <dd>{platformLabel}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className="inspector-section">
-          <h2>Linear</h2>
-          <dl>
-            <div>
-              <dt>Status</dt>
-              <dd>{linearIssue?.status ?? labelForStatus(selectedIssueState?.issue.status ?? "loading")}</dd>
-            </div>
-            <div>
-              <dt>Priority</dt>
-              <dd>{linearIssue?.priorityLabel ?? "Unknown"}</dd>
-            </div>
-            <div>
-              <dt>Labels</dt>
-              <dd>{labelsText(linearIssue)}</dd>
-            </div>
-            <div>
-              <dt>Parent</dt>
-              <dd>{issueReferenceText(linearIssue?.parent)}</dd>
-            </div>
-            <div>
-              <dt>Blockers</dt>
-              <dd>{issueReferenceListText(linearIssue?.blockers ?? [])}</dd>
-            </div>
-            <div>
-              <dt>Workpad</dt>
-              <dd>{workpadText(linearIssue)}</dd>
-            </div>
-            <div>
-              <dt>Cache</dt>
-              <dd>{cacheText(selectedIssueState)}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className="inspector-section">
-          <h2>Sources</h2>
-          <div className="signal-list">
-            {sourceSignals.map((signal) => (
-              <SystemSignalRow key={signal.label} signal={signal} />
-            ))}
-          </div>
-        </section>
-
-        <section className="inspector-section">
-          <h2>Runners</h2>
-          {visibleRunners.map((runner) => (
-            <RunnerRow key={runner.name} runner={runner} />
-          ))}
-        </section>
-
-        <PullRequestPanel pullRequestState={pullRequestState} linearPullRequest={linearPullRequest} />
-        <GraphiteStackPanel stackState={graphiteState} />
-
-        <section className="inspector-section">
-          <h2>Review Controls</h2>
-          <div className="review-line">
-            <Workflow size={16} />
-            <span>{reviewLabel(reviewState) ?? selected.lastEvent ?? pullRequestLabel(pullRequestState)}</span>
-          </div>
-        </section>
-      </aside>
+          <span>{selected.id}: ask, dispatch, review</span>
+          <Send size={18} />
+        </div>
+        <button className="command-tool" disabled title="Runner queue" type="button">
+          <GitFork size={18} />
+        </button>
+        <button className="command-tool" disabled title="Prompt tools" type="button">
+          <Sparkles size={18} />
+        </button>
+        <button className="command-tool" disabled title="Terminal" type="button">
+          <Terminal size={18} />
+        </button>
+      </footer>
     </main>
   );
 }

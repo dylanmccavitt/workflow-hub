@@ -305,6 +305,33 @@ function cacheStatusText(cache: LinearCacheState) {
   return cache.stale ? `${labelForStatus(cache.status)} stale` : labelForStatus(cache.status);
 }
 
+function formatCacheAge(ageMs: number | undefined) {
+  if (typeof ageMs !== "number") return undefined;
+
+  const seconds = Math.max(0, Math.round(ageMs / 1000));
+  if (seconds < 60) return `${seconds}s old`;
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m old`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h old`;
+
+  return `${Math.round(hours / 24)}d old`;
+}
+
+function cacheNoticeDetail(cache: LinearCacheState, adapter: AdapterState | undefined) {
+  const details = [
+    cacheStatusText(cache),
+    adapter?.detail,
+    cache.error,
+    cache.fetchedAt ? `Fetched ${formatTimestamp(cache.fetchedAt)}` : undefined,
+    formatCacheAge(cache.ageMs)
+  ].filter((detail): detail is string => Boolean(detail));
+
+  return [...new Set(details)].join(" | ");
+}
+
 function toneForCache(cache: LinearCacheState | undefined): Tone {
   if (!cache) return "neutral";
   if (cache.status === "error") return "danger";
@@ -1244,14 +1271,16 @@ function SystemSignalRow({ signal }: { signal: SystemSignal }) {
 function StateNotice({
   title,
   detail,
-  tone = "neutral"
+  tone = "neutral",
+  compact = false
 }: {
   title: string;
   detail: string;
   tone?: Tone;
+  compact?: boolean;
 }) {
   return (
-    <div className={`state-notice ${tone}`}>
+    <div className={`state-notice ${tone} ${compact ? "compact" : ""}`}>
       <ToneIcon tone={tone} />
       <div>
         <strong>{title}</strong>
@@ -1566,6 +1595,7 @@ export function App() {
   const [riskAccepted, setRiskAccepted] = useState(false);
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<IssueStatus>();
   const selectedIssueState = issueState?.issue.issueId === selectedIssueId ? issueState : undefined;
   const apiIssueCards = useMemo(
     () => issueListState?.issues.map((issue) => issueCardFromLinearIssue(issue, issueListState.project.displayName)) ?? [],
@@ -1592,13 +1622,19 @@ export function App() {
     [apiIssueCards, selected]
   );
   const statusGroups = useMemo(
-    () => [
+    () => Array.from(new Set([
       ...statuses,
       ...sidebarIssues
         .map((issue) => issue.status)
         .filter((status) => !statuses.includes(status))
-    ],
+    ])),
     [sidebarIssues]
+  );
+  const visibleSidebarIssues = useMemo(
+    () => selectedStatusFilter
+      ? sidebarIssues.filter((issue) => issue.status === selectedStatusFilter)
+      : sidebarIssues,
+    [selectedStatusFilter, sidebarIssues]
   );
 
   const refreshIssueList = useCallback(async () => {
@@ -1658,6 +1694,12 @@ export function App() {
     url.searchParams.set("issue", selectedIssueId);
     window.history.replaceState(null, "", url.toString());
   }, [selectedIssueId]);
+
+  useEffect(() => {
+    if (selectedStatusFilter && !statusGroups.includes(selectedStatusFilter)) {
+      setSelectedStatusFilter(undefined);
+    }
+  }, [selectedStatusFilter, statusGroups]);
 
   const handleSelectIssue = useCallback((issueId: string) => {
     setSelectedIssueId(issueId.toUpperCase());
@@ -1728,14 +1770,16 @@ export function App() {
         : selectedCache?.stale
           ? {
               title: "Selected issue cache is stale",
-              detail: cacheStatusText(selectedCache),
-              tone: toneForCache(selectedCache)
+              detail: cacheNoticeDetail(selectedCache, selectedIssueState?.issue.adapter),
+              tone: toneForCache(selectedCache),
+              compact: true
             }
           : listCache?.stale
             ? {
                 title: "Issue list cache is stale",
-                detail: cacheStatusText(listCache),
-                tone: toneForCache(listCache)
+                detail: cacheNoticeDetail(listCache, issueListState?.adapter),
+                tone: toneForCache(listCache),
+                compact: true
               }
             : undefined;
 
@@ -1801,8 +1845,15 @@ export function App() {
         <section className="state-groups" aria-label="Issue states">
           {statusGroups.map((status) => {
             const count = sidebarIssues.filter((issue) => issue.status === status).length;
+            const isActive = selectedStatusFilter === status;
             return (
-              <button key={status} className="state-row" type="button">
+              <button
+                aria-pressed={isActive}
+                key={status}
+                className={`state-row ${isActive ? "active" : ""}`}
+                onClick={() => setSelectedStatusFilter((current) => current === status ? undefined : status)}
+                type="button"
+              >
                 <span>{status}</span>
                 <strong>{count}</strong>
               </button>
@@ -1821,8 +1872,14 @@ export function App() {
               detail="Run a Linear sync or refresh once credentials are available."
               tone="warning"
             />
+          ) : visibleSidebarIssues.length === 0 ? (
+            <StateNotice
+              title={`No ${selectedStatusFilter} issues`}
+              detail="Click the active status again to show every cached issue."
+              tone="neutral"
+            />
           ) : (
-            sidebarIssues.map((issue) => (
+            visibleSidebarIssues.map((issue) => (
               <IssueRow
                 key={issue.id}
                 issue={issue}

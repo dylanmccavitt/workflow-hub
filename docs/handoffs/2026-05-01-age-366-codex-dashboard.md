@@ -8,6 +8,8 @@ Implemented the local API issue-list path and switched the dashboard away from t
 
 The renderer now uses local API project issues for the left rail, issue counts, selected issue header, linked Linear graph, cache state, and empty/loading/stale/error notices. The selected issue timeline renders real local API runner/workflow events only. Non-backed action buttons remain disabled, while Sync refreshes real local API state and PR opens only when a PR URL is available.
 
+Review fix pass: sidebar state rows now toggle a real issue-status filter with active/empty states, and stale-cache notices now show actionable provider/cache detail in a compact notice instead of only `Stale`.
+
 PR: https://github.com/DylanMcCavitt/workflow-hub/pull/15
 
 ## Next
@@ -54,6 +56,10 @@ Confirm the app opens to AGE-366, the left rail lists live Workflow Hub project 
 - `npm run check`
 - `npm run lint`
 - `git diff --check`
+- Review fix: `npm run check`
+- Review fix: `npm run lint`
+- Review fix: `git diff --check`
+- Review fix: `node scripts/workflow-hub.mjs api-state AGE-366 --json`
 - Electron smoke: `WORKFLOW_HUB_ISSUE_ID=AGE-366 npm run dev`
 - `gh pr view 15 --json number,url,state,headRefName,baseRefName,mergeStateStatus,isDraft,title`
 - `gh pr checks 15 --watch=false` reported no checks configured for the branch
@@ -62,3 +68,4 @@ Confirm the app opens to AGE-366, the left rail lists live Workflow Hub project 
 
 - Electron smoke showed 29 API-backed issues, AGE-366 selected, fresh cache, resolved issue worktree, available Symphony/Codex/Cursor state, disabled unavailable actions, and a real Symphony timeline row.
 - PR #15 is open, non-draft, and GitHub reports merge state `CLEAN`.
+- Review fix local API smoke showed AGE-366 resolving to `feat/age-366-codex-dashboard`, GitHub PR #15 available, Graphite unavailable with a deep-link fallback, and stale Linear cache surfaced through typed cache state.

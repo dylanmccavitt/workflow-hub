@@ -170,6 +170,16 @@ h1 {
   background: #191b16;
 }
 
+.state-row.active {
+  border-color: #72a7ff;
+  color: #f5f0e6;
+  background: #172334;
+}
+
+.state-row.active strong {
+  color: #72a7ff;
+}
+
 .issue-list {
   display: grid;
   align-content: start;
@@ -803,6 +813,21 @@ h1 {
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.state-notice.compact {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.state-notice.compact svg {
+  width: 16px;
+  height: 16px;
+}
+
+.state-notice.compact strong {
+  margin-bottom: 2px;
 }
 
 .state-notice.success {

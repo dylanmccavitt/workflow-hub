@@ -1,12 +1,16 @@
 export type IssueStatus =
   | "Backlog"
+  | "Todo"
   | "Ready"
   | "In Progress"
   | "Human Review"
+  | "In Review"
   | "Needs Fixes"
   | "Merging"
   | "Blocked"
-  | "Done";
+  | "Done"
+  | "Canceled"
+  | "Duplicate";
 
 export type RunnerKind = "Symphony" | "Codex" | "Cursor SDK";
 export type CriterionStatus = "Done" | "In Progress" | "Planned" | "Blocked";

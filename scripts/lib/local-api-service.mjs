@@ -95,6 +95,121 @@ export function createLocalApiService(options = {}) {
   return {
     version: LOCAL_API_VERSION,
 
+    async listIssues(input = {}) {
+      const requestedProjectId = sanitizeOptionalString(input?.projectId, "projectId") ?? "workflow-hub";
+
+      let registry;
+      try {
+        registry = readProjectConfig();
+      } catch (error) {
+        const projectConfigAdapter = unavailableAdapter(
+          "project-config",
+          "Project config",
+          `Project config could not be loaded: ${errorMessage(error)}`
+        );
+        const linearAdapter = unavailableAdapter(
+          "linear",
+          "Linear",
+          "Linear issue list is unavailable because project config could not be loaded.",
+          "AGE-354"
+        );
+
+        return {
+          apiVersion: LOCAL_API_VERSION,
+          generatedAt: clock().toISOString(),
+          project: unavailableProjectState(projectConfigAdapter),
+          cache: {
+            status: "error",
+            stale: true,
+            staleAfterMs: linearCacheStaleAfterMs,
+            error: errorMessage(error)
+          },
+          adapter: linearAdapter,
+          issues: [],
+          adapters: [projectConfigAdapter, linearAdapter]
+        };
+      }
+
+      const projectConfigAdapter = availableAdapter(
+        "project-config",
+        "Project config",
+        `Loaded ${registry.projects.length} configured project(s).`
+      );
+      const project = registry.projects.find((candidate) => candidate.id === requestedProjectId);
+
+      if (!project) {
+        const projectAdapter = notFoundAdapter(
+          "project",
+          "Project",
+          `No configured project found for ${requestedProjectId}.`
+        );
+        const linearAdapter = notFoundAdapter(
+          "linear",
+          "Linear",
+          `No configured project found for ${requestedProjectId}; issue list sync cannot run.`
+        );
+
+        return {
+          apiVersion: LOCAL_API_VERSION,
+          generatedAt: clock().toISOString(),
+          project: {
+            status: "not-found",
+            adapter: projectAdapter
+          },
+          cache: {
+            status: "miss",
+            stale: true,
+            staleAfterMs: linearCacheStaleAfterMs
+          },
+          adapter: linearAdapter,
+          issues: [],
+          adapters: [projectConfigAdapter, projectAdapter, linearAdapter]
+        };
+      }
+
+      const repository = getRegistryRepository();
+      let syncResult;
+      try {
+        syncResult = await syncLinearProjectIssues({
+          project,
+          repository,
+          clock,
+          staleAfterMs: linearCacheStaleAfterMs
+        });
+      } catch (error) {
+        syncResult = {
+          status: "error",
+          detail: `Linear sync failed: ${errorMessage(error)}`,
+          error: errorMessage(error),
+          staleAfterMs: linearCacheStaleAfterMs
+        };
+      }
+
+      const projectRecord = repository.getProject(project.id);
+      const cachedIssues = repository.listProjectIssues(project.id);
+      const now = clock();
+      const issues = cachedIssues.map((record) => linearIssueFromCachedRecord(record, {
+        now,
+        staleAfterMs: linearCacheStaleAfterMs,
+        forceStale: syncResult.status !== "fresh",
+        syncError: syncResult.error
+      }));
+      const linearAdapter = linearAdapterFromSyncResult(syncResult, cachedIssues[0]);
+
+      return {
+        apiVersion: LOCAL_API_VERSION,
+        generatedAt: now.toISOString(),
+        project: projectStateFromProject(project, projectConfigAdapter),
+        cache: projectCacheStateFromSync(syncResult, projectRecord, {
+          now,
+          staleAfterMs: linearCacheStaleAfterMs
+        }),
+        adapter: linearAdapter,
+        issues,
+        adapters: [projectConfigAdapter, linearAdapter]
+      };
+    },
+
     async getIssueState(inputIssueId) {
       const issueId = normalizeIssueId(inputIssueId);
 
@@ -494,6 +609,39 @@ function buildIssueResponse({
       ...normalizedPullRequestStates.map((pullRequest) => pullRequest.adapter)
     ].filter(Boolean)
   };
+}
+
+function projectCacheStateFromSync(syncResult, projectRecord, options) {
+  const sync = projectRecord?.metadata?.linearSync ?? {};
+  const staleAfterMs = options.staleAfterMs ?? syncResult.staleAfterMs;
+  const fetchedAt = syncResult.fetchedAt ?? sync.fetchedAt;
+  const ageMs = cacheAgeSince(fetchedAt, options.now);
+  const status = syncResult.status === "fresh"
+    ? "fresh"
+    : syncResult.status === "not-configured"
+      ? "not-configured"
+      : syncResult.status === "error"
+        ? "error"
+        : "stale";
+  const stale = status !== "fresh"
+    || ageMs === undefined
+    || (typeof staleAfterMs === "number" && ageMs > staleAfterMs);
+
+  return {
+    status,
+    stale,
+    fetchedAt,
+    ageMs,
+    staleAfterMs,
+    error: status === "fresh" ? undefined : syncResult.error ?? sync.error
+  };
+}
+
+function cacheAgeSince(timestamp, now) {
+  if (!timestamp) return undefined;
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) return undefined;
+  return Math.max(0, now.getTime() - parsed);
 }
 
 function readPullRequestProviderStates({

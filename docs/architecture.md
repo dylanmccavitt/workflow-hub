@@ -15,8 +15,8 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 ## Major Components
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
-- `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
-- `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, scoped git probes, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
+- `electron/preload.cjs`: Exposes minimal safe `workflowHub.issues.list()` and `workflowHub.issues.getState(issueId)` bridges to the renderer without broad filesystem, shell, or arbitrary IPC access.
+- `scripts/lib/local-api-service.mjs`: Node-side service layer for project issue lists, selected issue state, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, Linear cache sync, scoped git probes, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
 - `scripts/lib/runner-timeline.mjs`: Pure normalization layer that maps Symphony, Codex, and Cursor status/event shapes into queued, starting, running, blocked, cancelling, cancelled, succeeded, failed, and unknown timeline states while preserving raw runner IDs, log paths, and raw provider event payloads for debugging.
 - `scripts/lib/review-fix-prompt.mjs`: Pure prompt builder that composes selected GitHub review comments, failing checks, Linear issue/workpad context, owned paths, and current worktree/branch into an editable fix prompt.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
@@ -27,7 +27,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `scripts/lib/cursor-runner.mjs`: Cursor SDK local runner adapter. It launches `@cursor/sdk` agents with `local.cwd` set to the resolved issue worktree, persists run records in the registry, and records streamed SDK messages as local timeline events.
 - `scripts/lib/codex-runner.mjs`: Codex CLI local runner adapter. It launches `codex exec --json` with `--cd` set to the resolved issue worktree, records command/cwd/session/log/summary/status metadata, and keeps sandbox/approval boundaries visible in registry events.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
-- `src/App.tsx`: Codex-style track cockpit using static track data plus the local API state, adapter availability, explicit Linear status actions, confirmation boundary, editable PR-fix prompt panel, Codex and Cursor local-run panels, GitHub PR/check/review state, Graphite stack state, and local event timeline for the selected issue.
+- `src/App.tsx`: Codex-style dashboard backed by the local issue-list and selected-issue API, with adapter availability, explicit Linear status actions, confirmation boundary, editable PR-fix prompt panel, Codex and Cursor local-run panels, GitHub PR/check/review state, Graphite stack state, linked Linear issue graph, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -47,14 +47,15 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 
 ### Issue Review
 
-1. User selects a Linear issue.
-2. Hub asks the main-process local API for project, issue, workspace, runner, review, and PR state.
-3. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, reads passive Symphony observability state, and marks missing adapters as recoverable unavailable state.
-4. The local API resolves linked GitHub PRs from Linear and git metadata, then reads status, review decision, checks, failing annotations, comments, and links without mutating GitHub.
-5. The local API resolves Graphite stack candidates from GitHub/Linear/workspace branch metadata, reads local `gt` stack order only when Graphite is initialized, and returns a Graphite deep link when stack data is unavailable.
-6. Hub shows branch, PR, Graphite stack, runner, and normalized Symphony state.
-7. User launches simulator/device review from the issue worktree.
-8. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
+1. Hub asks the main-process local API for the configured Linear project issue list and cache state.
+2. User selects a Linear issue from the API-backed list.
+3. Hub asks the main-process local API for project, issue, workspace, runner, review, and PR state.
+4. The local API syncs configured Linear project issues when `LINEAR_API_KEY` is available, then resolves the issue worktree through project config, reads scoped git status, reads passive Symphony observability state, and marks missing adapters as recoverable unavailable state.
+5. The local API resolves linked GitHub PRs from Linear and git metadata, then reads status, review decision, checks, failing annotations, comments, and links without mutating GitHub.
+6. The local API resolves Graphite stack candidates from GitHub/Linear/workspace branch metadata, reads local `gt` stack order only when Graphite is initialized, and returns a Graphite deep link when stack data is unavailable.
+7. Hub shows branch, PR, Graphite stack, runner, and normalized Symphony state.
+8. User launches simulator/device review from the issue worktree.
+9. User marks Ready, In Progress, Human Review, Needs Fixes, Merging, Done, or Blocked through explicit Linear status actions.
 
 ### Linear Writes
 

@@ -31,6 +31,7 @@ const SUCCESS_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const PENDING_STATUSES = new Set(["EXPECTED", "PENDING", "QUEUED", "REQUESTED", "WAITING", "IN_PROGRESS"]);
 const DEFAULT_REVIEW_COMMENT_LIMIT = 6;
 const DEFAULT_ANNOTATION_LIMIT = 8;
+const DEFAULT_DIFF_FILE_LIMIT = 100;
 
 export function readGitHubPullRequestState(options = {}) {
   const {
@@ -38,7 +39,8 @@ export function readGitHubPullRequestState(options = {}) {
     workspace,
     ghRunner = runGh,
     reviewCommentLimit = DEFAULT_REVIEW_COMMENT_LIMIT,
-    annotationLimit = DEFAULT_ANNOTATION_LIMIT
+    annotationLimit = DEFAULT_ANNOTATION_LIMIT,
+    diffFileLimit = DEFAULT_DIFF_FILE_LIMIT
   } = options;
   const candidates = resolvePullRequestCandidates({ issue, workspace });
   const defaultRepository = parseGitHubRepository(workspace?.remote);
@@ -79,6 +81,7 @@ export function readGitHubPullRequestState(options = {}) {
         cwd: workspace?.path,
         reviewCommentLimit,
         annotationLimit,
+        diffFileLimit,
         matchedBy: candidate.source
       });
 
@@ -339,6 +342,7 @@ function buildPullRequestDetails({
   cwd,
   reviewCommentLimit,
   annotationLimit,
+  diffFileLimit,
   matchedBy
 }) {
   const annotationsByCheckId = fetchAnnotationsByCheckId({
@@ -360,6 +364,13 @@ function buildPullRequestDetails({
     ...latestReviewSummaries(pullRequest.latestReviews),
     ...issueComments(pullRequest.comments)
   ], reviewCommentLimit);
+  const diff = fetchPullRequestDiff({
+    repository,
+    number: pullRequest.number,
+    ghRunner,
+    cwd,
+    fileLimit: diffFileLimit
+  });
 
   return {
     provider: "GitHub",
@@ -379,7 +390,153 @@ function buildPullRequestDetails({
     author: normalizeAuthor(pullRequest.author),
     matchedBy,
     checks,
-    reviewComments
+    reviewComments,
+    diff
+  };
+}
+
+function fetchPullRequestDiff({ repository, number, ghRunner, cwd, fileLimit }) {
+  const result = runGhJson([
+    "api",
+    `repos/${repository.owner}/${repository.repo}/pulls/${number}/files?per_page=${fileLimit}`
+  ], ghRunner, cwd);
+
+  if (!result.ok) {
+    return diffState({
+      status: "error",
+      detail: `GitHub PR changed files could not be loaded: ${result.error}`,
+      files: []
+    });
+  }
+
+  if (!Array.isArray(result.value)) {
+    return diffState({
+      status: "error",
+      detail: "GitHub PR changed files response was not an array.",
+      files: []
+    });
+  }
+
+  const files = result.value.map(normalizeDiffFile);
+
+  if (files.length === 0) {
+    return diffState({
+      status: "empty",
+      detail: `GitHub reports no changed files for PR #${number}.`,
+      files
+    });
+  }
+
+  return diffState({
+    status: "available",
+    detail: `${files.length} changed file${files.length === 1 ? "" : "s"}; +${sumBy(files, "additions")} -${sumBy(files, "deletions")}.`,
+    files
+  });
+}
+
+function diffState({ status, detail, files }) {
+  return {
+    status,
+    detail,
+    changedFileCount: files.length,
+    additions: sumBy(files, "additions"),
+    deletions: sumBy(files, "deletions"),
+    files
+  };
+}
+
+function normalizeDiffFile(file) {
+  const patch = typeof file.patch === "string" ? file.patch : "";
+
+  return {
+    path: file.filename,
+    previousPath: file.previous_filename,
+    status: normalizeTextStatus(file.status),
+    additions: numericField(file.additions),
+    deletions: numericField(file.deletions),
+    changes: numericField(file.changes),
+    blobUrl: file.blob_url,
+    rawUrl: file.raw_url,
+    hunks: parseUnifiedPatch(patch)
+  };
+}
+
+export function parseUnifiedPatch(patch) {
+  if (typeof patch !== "string" || patch.trim().length === 0) return [];
+
+  const hunks = [];
+  let currentHunk;
+  let oldLineNumber = 0;
+  let newLineNumber = 0;
+
+  for (const rawLine of patch.split(/\r?\n/)) {
+    const header = parseHunkHeader(rawLine);
+
+    if (header) {
+      currentHunk = {
+        ...header,
+        lines: []
+      };
+      hunks.push(currentHunk);
+      oldLineNumber = header.oldStart;
+      newLineNumber = header.newStart;
+      continue;
+    }
+
+    if (!currentHunk) continue;
+
+    if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
+      currentHunk.lines.push({
+        type: "addition",
+        content: rawLine.slice(1),
+        newLineNumber
+      });
+      newLineNumber += 1;
+      continue;
+    }
+
+    if (rawLine.startsWith("-") && !rawLine.startsWith("---")) {
+      currentHunk.lines.push({
+        type: "deletion",
+        content: rawLine.slice(1),
+        oldLineNumber
+      });
+      oldLineNumber += 1;
+      continue;
+    }
+
+    if (rawLine.startsWith(" ")) {
+      currentHunk.lines.push({
+        type: "context",
+        content: rawLine.slice(1),
+        oldLineNumber,
+        newLineNumber
+      });
+      oldLineNumber += 1;
+      newLineNumber += 1;
+      continue;
+    }
+
+    currentHunk.lines.push({
+      type: "metadata",
+      content: rawLine
+    });
+  }
+
+  return hunks;
+}
+
+function parseHunkHeader(line) {
+  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: ?(.*))?$/.exec(line);
+  if (!match) return undefined;
+
+  return {
+    header: line,
+    oldStart: Number(match[1]),
+    oldLines: match[2] ? Number(match[2]) : 1,
+    newStart: Number(match[3]),
+    newLines: match[4] ? Number(match[4]) : 1,
+    section: match[5] || undefined
   };
 }
 
@@ -661,6 +818,19 @@ function normalizeAuthor(author) {
 
 function normalizeTextState(value) {
   return typeof value === "string" ? value.trim().toUpperCase() : "";
+}
+
+function normalizeTextStatus(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim().toLowerCase() : "unknown";
+}
+
+function numericField(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function sumBy(values, key) {
+  return values.reduce((sum, value) => sum + numericField(value[key]), 0);
 }
 
 function readableState(value) {

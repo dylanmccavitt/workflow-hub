@@ -8,6 +8,11 @@ Implemented Codex as a first-class local runner beside Cursor SDK. The adapter l
 
 The renderer now includes a Codex CLI Local Run panel with command/model/sandbox/approval controls, worktree and latest-log metadata, and Codex run events render in the issue timeline with cwd, summary, log path, and permission boundary details.
 
+Post-review fix pass found and fixed two Electron review blockers:
+
+- Large `api-state` JSON was truncated at roughly 64 KB when Electron spawned the workflow CLI through a pipe. The CLI now returns from `main()` instead of calling `process.exit(0)` immediately after writing JSON, so stdout can drain before process exit.
+- The added Codex runner panel exposed center-pane scroll containment problems. The workspace grid now keeps the command bar fixed, makes the middle pane the vertical scrollport, contains scroll chaining, and wraps long prompt/log/path text instead of creating horizontal scrollbars.
+
 ## Next
 
 Manual UI review path:
@@ -17,6 +22,8 @@ WORKFLOW_HUB_ISSUE_ID=AGE-363 npm run dev
 ```
 
 Open `AGE-363`, confirm the Codex CLI Local Run panel shows command `codex`, sandbox `workspace-write`, approvals `never`, and the issue worktree. For a no-write smoke run, switch sandbox to `read-only`, enter a short prompt, and click Run. The timeline should show `AGE-363 Codex run finished` with the cwd, log path, and boundary metadata.
+
+If this local review-fix commit has not been pushed yet, push it to PR #13 before merging.
 
 ## Risks
 
@@ -54,6 +61,9 @@ Open `AGE-363`, confirm the Codex CLI Local Run panel shows command `codex`, san
 - `node scripts/workflow-hub.mjs codex-run AGE-363 --prompt "Dry-run Codex local runner wiring for AGE-363." --dry-run --json`
 - `node scripts/workflow-hub.mjs codex-run AGE-363 --prompt "Smoke test for Workflow Hub AGE-363. Do not edit files. Reply with one sentence: Codex adapter smoke test complete." --sandbox read-only --approval-policy never --json`
 - `node scripts/workflow-hub.mjs api-state AGE-363 --json`
+- spawned `node scripts/workflow-hub.mjs api-state AGE-363 --json` through `child_process.spawn`; parsed 73984 bytes successfully after the CLI exit fix
+- `WORKFLOW_HUB_ISSUE_ID=AGE-363 npm run dev`; visually confirmed Electron loads AGE-363, the command bar stays visible, center content scrolls vertically, and prompt textareas no longer show horizontal scrollbars
+- `node scripts/workflow-hub.mjs codex-run AGE-363 --prompt "Dry-run Codex local runner wiring after review fixes." --dry-run --json`
 - `npm run lint`
 - `npm run typecheck`
 - `npm run build`

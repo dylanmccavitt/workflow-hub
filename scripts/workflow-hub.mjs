@@ -778,72 +778,76 @@ function review(args) {
   process.exit(1);
 }
 
-const [command, ...args] = process.argv.slice(2);
+async function main() {
+  const [command, ...args] = process.argv.slice(2);
 
-if (!command) {
-  usage();
-  process.exit(0);
-}
+  if (!command) {
+    usage();
+    return;
+  }
 
-try {
   if (command === "config") {
     printConfig(args[0]);
-    process.exit(0);
+    return;
   }
 
   if (command === "linear-sync") {
     await linearSync(args[0], args[1]);
-    process.exit(0);
+    return;
   }
 
   if (command === "linear-action") {
     await linearAction(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "api-state") {
     await apiState(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "codex-run") {
     await codexRun(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "cursor-run") {
     await cursorRun(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "fix-prompt") {
     await fixPrompt(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "fix-prompt-save") {
     await fixPromptSave(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "status") {
     status(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "open") {
     openWorkspace(args);
-    process.exit(0);
+    return;
   }
 
   if (command === "review") {
     review(args);
-    process.exit(0);
+    return;
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+
+  usage();
+  process.exitCode = 1;
 }
 
-usage();
-process.exit(1);
+try {
+  await main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

@@ -27,6 +27,8 @@ function usage() {
 Usage:
   npm run workflow -- config [--json]
   npm run workflow -- api-state [ISSUE_ID] --json
+  npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
+  npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
   npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--note NOTE] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
@@ -229,6 +231,148 @@ async function linearAction(args) {
   ].join("\n"));
 }
 
+function decodePayload(value) {
+  try {
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  } catch (error) {
+    throw new Error(`--payload must be base64url encoded JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function parseReviewFixPromptArgs(args, registry) {
+  let issueId;
+  let json = false;
+  let payload = {};
+  const selectedReviewCommentIds = [];
+  const selectedCheckIds = [];
+  const ownedPaths = [];
+  let prompt;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--payload") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--payload requires a value");
+      }
+      payload = decodePayload(args[index]);
+      continue;
+    }
+
+    if (arg === "--review-comment") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--review-comment requires a value");
+      }
+      selectedReviewCommentIds.push(args[index]);
+      continue;
+    }
+
+    if (arg === "--check") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--check requires a value");
+      }
+      selectedCheckIds.push(args[index]);
+      continue;
+    }
+
+    if (arg === "--owned-path") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--owned-path requires a value");
+      }
+      ownedPaths.push(args[index]);
+      continue;
+    }
+
+    if (arg === "--prompt") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--prompt requires a value");
+      }
+      prompt = args[index];
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown fix-prompt flag: ${arg}`);
+    }
+
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg)) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+
+    throw new Error(`Unexpected fix-prompt argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = payload.issueId
+      ? normalizeIssueId(payload.issueId)
+      : selectIssueId(undefined, registry);
+  }
+
+  return {
+    ...payload,
+    issueId,
+    prompt: prompt ?? payload.prompt,
+    selectedReviewCommentIds: mergePayloadArray(payload, "selectedReviewCommentIds", selectedReviewCommentIds),
+    selectedCheckIds: mergePayloadArray(payload, "selectedCheckIds", selectedCheckIds),
+    ownedPaths: mergePayloadArray(payload, "ownedPaths", ownedPaths),
+    json
+  };
+}
+
+function mergePayloadArray(payload, fieldName, extras) {
+  const payloadValue = payload[fieldName];
+  if (payloadValue === undefined && extras.length === 0) return undefined;
+  if (payloadValue !== undefined && !Array.isArray(payloadValue)) {
+    throw new Error(`${fieldName} in --payload must be an array.`);
+  }
+
+  return [...(payloadValue ?? []), ...extras];
+}
+
+async function fixPrompt(args) {
+  const registry = readProjectConfig();
+  const parsed = parseReviewFixPromptArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.draftReviewFixPrompt(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log(payload.prompt);
+}
+
+async function fixPromptSave(args) {
+  const registry = readProjectConfig();
+  const parsed = parseReviewFixPromptArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.saveReviewFixPrompt(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log([
+    `${payload.issueId} fix prompt saved.`,
+    `Event: ${payload.event.id}`,
+    `Branch: ${payload.branch ?? "unknown"}`,
+    `Worktree: ${payload.worktree ?? "unknown"}`
+  ].join("\n"));
+}
+
 function requireResolvedWorkspace(issueId, registry) {
   const resolved = resolveIssueWorkspace(issueId, registry);
 
@@ -398,6 +542,16 @@ try {
 
   if (command === "api-state") {
     await apiState(args);
+    process.exit(0);
+  }
+
+  if (command === "fix-prompt") {
+    await fixPrompt(args);
+    process.exit(0);
+  }
+
+  if (command === "fix-prompt-save") {
+    await fixPromptSave(args);
     process.exit(0);
   }
 

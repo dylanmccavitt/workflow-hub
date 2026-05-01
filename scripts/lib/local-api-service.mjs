@@ -27,6 +27,9 @@ import {
 import {
   readGraphiteStackState as defaultReadGraphiteStackState
 } from "./graphite-stack-state.mjs";
+import {
+  buildReviewFixPromptDraft
+} from "./review-fix-prompt.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -287,6 +290,77 @@ export function createLocalApiService(options = {}) {
 
         throw error;
       }
+    },
+
+    async draftReviewFixPrompt(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const state = await this.getIssueState(issueId);
+
+      return buildReviewFixPromptDraft(state, {
+        selectedReviewCommentIds: sanitizeOptionalStringArray(
+          input?.selectedReviewCommentIds,
+          "selectedReviewCommentIds"
+        ),
+        selectedCheckIds: sanitizeOptionalStringArray(input?.selectedCheckIds, "selectedCheckIds"),
+        ownedPaths: sanitizeOptionalStringArray(input?.ownedPaths, "ownedPaths"),
+        generatedAt: clock().toISOString()
+      });
+    },
+
+    async saveReviewFixPrompt(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const prompt = sanitizeRequiredPrompt(input?.prompt);
+      const selectedReviewCommentIds = sanitizeOptionalStringArray(
+        input?.selectedReviewCommentIds,
+        "selectedReviewCommentIds"
+      );
+      const selectedCheckIds = sanitizeOptionalStringArray(input?.selectedCheckIds, "selectedCheckIds");
+      const ownedPaths = sanitizeOptionalStringArray(input?.ownedPaths, "ownedPaths");
+      const state = await this.getIssueState(issueId);
+      const draft = buildReviewFixPromptDraft(state, {
+        selectedReviewCommentIds,
+        selectedCheckIds,
+        ownedPaths,
+        generatedAt: clock().toISOString()
+      });
+      const registry = readProjectConfig();
+      const project = selectProjectForIssue(issueId, registry.projects);
+
+      if (!project) {
+        throw new LocalApiValidationError("No configured project could be matched to this issue.");
+      }
+
+      const repository = getRegistryRepository();
+      const issueRecord = upsertReviewPromptIssue(repository, project, state, {
+        clock,
+        linearCacheStaleAfterMs
+      });
+      const event = repository.recordEvent({
+        issueId: issueRecord.id,
+        entityType: "review",
+        entityId: `${issueId}:fix-prompt`,
+        type: "review.fix_prompt.generated",
+        message: `${issueId} fix prompt saved`,
+        payload: {
+          prompt,
+          generatedPrompt: draft.prompt,
+          edited: prompt !== draft.prompt,
+          selectedReviewCommentIds: draft.selectedReviewCommentIds,
+          selectedCheckIds: draft.selectedCheckIds,
+          ownedPaths: draft.ownedPaths,
+          branch: draft.branch,
+          worktree: draft.worktree,
+          headSha: draft.headSha,
+          pullRequest: draft.pullRequest
+        }
+      });
+
+      return {
+        ...draft,
+        prompt,
+        generatedPrompt: draft.prompt,
+        event
+      };
     }
   };
 }
@@ -798,6 +872,60 @@ function upsertLinearWriteIssue(repository, project, result, options) {
   });
 }
 
+function upsertReviewPromptIssue(repository, project, state, options) {
+  const existingProject = repository.getProject(project.id);
+  const existingProjectMetadata = existingProject?.metadata ?? {};
+  const existingIssue = repository.getIssueByIdentifier(project.id, state.issue.issueId);
+  const linearIssue = state.issue.linear;
+  const writtenAt = options.clock().toISOString();
+
+  repository.upsertProject({
+    id: project.id,
+    displayName: project.displayName,
+    repoPath: project.canonicalPath,
+    linearTeamKey: project.linear?.teamKey,
+    linearProjectId: project.linear?.projectId,
+    metadata: {
+      ...existingProjectMetadata,
+      linear: {
+        teamKey: project.linear?.teamKey,
+        projectId: project.linear?.projectId,
+        projectSlug: project.linear?.projectSlug
+      }
+    }
+  });
+
+  return repository.upsertIssue({
+    id: existingIssue?.id ?? linearIssue?.linearId ?? `${project.id}-${state.issue.issueId}`,
+    projectId: project.id,
+    identifier: state.issue.issueId,
+    title: linearIssue?.title ?? state.issue.issueId,
+    status: linearIssue?.status ?? state.issue.status,
+    linearUrl: linearIssue?.url,
+    priority: linearIssue?.priority,
+    metadata: {
+      ...(existingIssue?.metadata ?? {}),
+      source: linearIssue ? "linear" : state.issue.source,
+      linearId: linearIssue?.linearId,
+      updatedAt: linearIssue?.updatedAt ?? writtenAt,
+      statusType: linearIssue?.statusType,
+      priorityLabel: linearIssue?.priorityLabel,
+      labels: linearIssue?.labels,
+      blockers: linearIssue?.blockers,
+      blockedIssues: linearIssue?.blockedIssues,
+      links: linearIssue?.links,
+      pullRequests: linearIssue?.pullRequests,
+      codexWorkpad: linearIssue?.codexWorkpad,
+      linearSync: {
+        ...(existingIssue?.metadata?.linearSync ?? {}),
+        status: linearIssue?.cache?.status ?? existingIssue?.metadata?.linearSync?.status ?? "event-only",
+        fetchedAt: linearIssue?.cache?.fetchedAt ?? writtenAt,
+        staleAfterMs: options.linearCacheStaleAfterMs
+      }
+    }
+  });
+}
+
 function sanitizeOptionalNote(value) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
@@ -806,6 +934,29 @@ function sanitizeOptionalNote(value) {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function sanitizeRequiredPrompt(value) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new LocalApiValidationError("prompt must be a non-empty string.");
+  }
+
+  return value.trim();
+}
+
+function sanitizeOptionalStringArray(value, fieldName) {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new LocalApiValidationError(`${fieldName} must be an array of strings when provided.`);
+  }
+
+  return value.map((item) => {
+    if (typeof item !== "string" || item.trim().length === 0) {
+      throw new LocalApiValidationError(`${fieldName} must contain only non-empty strings.`);
+    }
+
+    return item.trim();
+  });
 }
 
 function availableAdapter(id, label, detail) {

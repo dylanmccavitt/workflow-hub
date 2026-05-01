@@ -8,12 +8,14 @@ import {
   CircleDot,
   Command,
   Database,
+  FileText,
   GitBranch,
   GitPullRequest,
   Laptop,
   MessageSquareText,
   Play,
   RotateCw,
+  Save,
   ShieldAlert,
   Smartphone,
   Terminal,
@@ -49,6 +51,7 @@ import type {
   LinearIssueDetails,
   LinearStatusAction,
   PullRequestApiState,
+  ReviewFixPromptDraft,
   ReviewApiState,
   RunnerApiState,
   WorkflowEvent,
@@ -149,6 +152,40 @@ function reviewCommentMeta(comment: GitHubReviewComment) {
     ? `${comment.path}${comment.line ? `:${comment.line}` : ""}`
     : labelForStatus(comment.kind);
   return `${author} | ${location}`;
+}
+
+function reviewCommentSelectionId(comment: GitHubReviewComment, index: number) {
+  return comment.id
+    ?? comment.url
+    ?? ["review-comment", comment.kind, comment.path ?? "general", comment.line ?? index].join(":");
+}
+
+function checkSelectionId(check: GitHubCheck, index: number) {
+  return check.id
+    ?? (typeof check.databaseId === "number" ? String(check.databaseId) : undefined)
+    ?? `check:${check.name}:${index}`;
+}
+
+function selectableReviewComments(comments: GitHubReviewComment[]) {
+  return comments
+    .filter((comment) => comment.body.trim().length > 0)
+    .map((comment, index) => ({
+      id: reviewCommentSelectionId(comment, index),
+      comment
+    }));
+}
+
+function selectableCheckFailures(checks: GitHubCheck[]) {
+  return checks
+    .filter((check) => check.state === "failing" || check.annotations.length > 0)
+    .map((check, index) => ({
+      id: checkSelectionId(check, index),
+      check
+    }));
+}
+
+function selectionKey(values: string[]) {
+  return values.join("|");
 }
 
 function reviewLabel(review: ReviewApiState | undefined) {
@@ -471,6 +508,214 @@ function ConfirmationBoundary({
         </button>
         <button className="action-button primary" disabled={applyDisabled} onClick={onApply} type="button">
           {isWriting ? "Writing..." : "Apply"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function FixPromptPanel({
+  issueId,
+  issueState,
+  pullRequestState,
+  onSaved
+}: {
+  issueId: string;
+  issueState: WorkflowIssueState | undefined;
+  pullRequestState: GitHubPullRequestApiState | undefined;
+  onSaved: () => Promise<void>;
+}) {
+  const pullRequest = pullRequestState?.pullRequest;
+  const reviewOptions = useMemo(
+    () => selectableReviewComments(pullRequest?.reviewComments ?? []),
+    [pullRequest]
+  );
+  const checkOptions = useMemo(
+    () => selectableCheckFailures(pullRequest?.checks.checks ?? []),
+    [pullRequest]
+  );
+  const optionKey = `${issueId}:${selectionKey(reviewOptions.map((option) => option.id))}:${selectionKey(checkOptions.map((option) => option.id))}`;
+  const [selectedReviewCommentIds, setSelectedReviewCommentIds] = useState<string[]>([]);
+  const [selectedCheckIds, setSelectedCheckIds] = useState<string[]>([]);
+  const [promptDraft, setPromptDraft] = useState<ReviewFixPromptDraft>();
+  const [promptText, setPromptText] = useState("");
+  const [promptError, setPromptError] = useState<string>();
+  const [savedEventId, setSavedEventId] = useState<string>();
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const canDraft = Boolean(window.workflowHub?.issues?.draftFixPrompt);
+  const canSave = Boolean(window.workflowHub?.issues?.saveFixPrompt);
+
+  useEffect(() => {
+    setSelectedReviewCommentIds(reviewOptions.map((option) => option.id));
+    setSelectedCheckIds(checkOptions.map((option) => option.id));
+    setPromptDraft(undefined);
+    setPromptText("");
+    setPromptError(undefined);
+    setSavedEventId(undefined);
+  }, [optionKey]);
+
+  const toggleReviewComment = (id: string, checked: boolean) => {
+    setSelectedReviewCommentIds((current) => checked
+      ? [...new Set([...current, id])]
+      : current.filter((candidate) => candidate !== id));
+  };
+
+  const toggleCheck = (id: string, checked: boolean) => {
+    setSelectedCheckIds((current) => checked
+      ? [...new Set([...current, id])]
+      : current.filter((candidate) => candidate !== id));
+  };
+
+  const draftPayload = {
+    issueId,
+    selectedReviewCommentIds,
+    selectedCheckIds
+  };
+
+  const handleDraftPrompt = async () => {
+    if (!window.workflowHub?.issues?.draftFixPrompt) return;
+
+    setIsDrafting(true);
+    setPromptError(undefined);
+    setSavedEventId(undefined);
+    try {
+      const draft = await window.workflowHub.issues.draftFixPrompt(draftPayload);
+      setPromptDraft(draft);
+      setPromptText(draft.prompt);
+    } catch (error: unknown) {
+      setPromptError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDrafting(false);
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!window.workflowHub?.issues?.saveFixPrompt || promptText.trim().length === 0) return;
+
+    setIsSaving(true);
+    setPromptError(undefined);
+    try {
+      const saved = await window.workflowHub.issues.saveFixPrompt({
+        ...draftPayload,
+        prompt: promptText
+      });
+      setPromptDraft(saved);
+      setPromptText(saved.prompt);
+      setSavedEventId(saved.event.id);
+      await onSaved();
+    } catch (error: unknown) {
+      setPromptError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <section className="fix-prompt-panel" aria-label="Review fix prompt builder">
+      <div className="section-heading">
+        <p className="eyebrow">PR review</p>
+        <h2>Fix Prompt</h2>
+      </div>
+
+      <div className="fix-prompt-grid">
+        <div className="fix-prompt-source">
+          <h3>Review Comments</h3>
+          {reviewOptions.length > 0 ? (
+            <div className="fix-selection-list">
+              {reviewOptions.map(({ id, comment }) => (
+                <label className="fix-selection-row" key={id}>
+                  <input
+                    checked={selectedReviewCommentIds.includes(id)}
+                    onChange={(event) => toggleReviewComment(id, event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>{reviewCommentMeta(comment)}</strong>
+                    <small>{bodyPreview(comment.body, 130)}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p>No review comments loaded.</p>
+          )}
+        </div>
+
+        <div className="fix-prompt-source">
+          <h3>Check Failures</h3>
+          {checkOptions.length > 0 ? (
+            <div className="fix-selection-list">
+              {checkOptions.map(({ id, check }) => (
+                <label className="fix-selection-row" key={id}>
+                  <input
+                    checked={selectedCheckIds.includes(id)}
+                    onChange={(event) => toggleCheck(id, event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>{check.name}</strong>
+                    <small>{labelForStatus(check.state)} | {check.annotations.length} annotation(s)</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p>No failing checks loaded.</p>
+          )}
+        </div>
+      </div>
+
+      {promptDraft ? (
+        <dl className="fix-prompt-meta">
+          <div>
+            <dt>Branch</dt>
+            <dd>{promptDraft.branch ?? issueState?.workspace.branch ?? "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>Worktree</dt>
+            <dd>{promptDraft.worktree ?? issueState?.workspace.path ?? "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>Owned paths</dt>
+            <dd>{promptDraft.ownedPaths.length > 0 ? promptDraft.ownedPaths.join(", ") : "None selected"}</dd>
+          </div>
+        </dl>
+      ) : null}
+
+      <label className="prompt-editor">
+        <span>
+          <FileText size={15} />
+          Prompt Draft
+        </span>
+        <textarea
+          onChange={(event) => setPromptText(event.target.value)}
+          placeholder="Generate a prompt from the selected PR context"
+          rows={12}
+          value={promptText}
+        />
+      </label>
+
+      {promptError ? <p className="write-error">{promptError}</p> : null}
+      {savedEventId ? <p className="prompt-save-note">Saved event {savedEventId}</p> : null}
+
+      <div className="fix-prompt-actions">
+        <button
+          className="secondary-button"
+          disabled={isDrafting || !canDraft}
+          onClick={handleDraftPrompt}
+          type="button"
+        >
+          {isDrafting ? "Generating..." : "Generate Draft"}
+        </button>
+        <button
+          className="action-button primary"
+          disabled={isSaving || !canSave || promptText.trim().length === 0}
+          onClick={handleSavePrompt}
+          type="button"
+        >
+          <Save size={15} />
+          {isSaving ? "Saving..." : "Save to Timeline"}
         </button>
       </div>
     </section>
@@ -1059,6 +1304,13 @@ export function App() {
               writeError={writeError}
             />
           ) : null}
+
+          <FixPromptPanel
+            issueId={selected.id}
+            issueState={selectedIssueState}
+            onSaved={refreshIssueState}
+            pullRequestState={pullRequestState}
+          />
 
           <section className="flow-board" aria-label="Daily workflow">
             <div className="section-heading">

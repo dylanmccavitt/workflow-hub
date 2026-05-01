@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld("workflowHub", {
     },
     applyAction(input) {
       return ipcRenderer.invoke("workflow-hub:apply-issue-action", input);
+    },
+    draftFixPrompt(input) {
+      return ipcRenderer.invoke("workflow-hub:draft-fix-prompt", input);
+    },
+    saveFixPrompt(input) {
+      return ipcRenderer.invoke("workflow-hub:save-fix-prompt", input);
     }
   }
 });

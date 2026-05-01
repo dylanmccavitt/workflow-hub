@@ -482,6 +482,81 @@ h1 {
   border-bottom: 1px solid #2a2b24;
 }
 
+.dispatch-panel {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #2a2b24;
+}
+
+.dispatch-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.32fr) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.dispatch-grid label {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  color: #b9baad;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dispatch-grid select,
+.dispatch-grid textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #f5f0e6;
+  background: #10110f;
+  font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.dispatch-grid select {
+  min-height: 44px;
+}
+
+.dispatch-grid textarea {
+  min-height: 102px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  resize: vertical;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dispatch-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #11120f;
+}
+
+.dispatch-meta > div {
+  min-width: 0;
+}
+
+.dispatch-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.dispatch-panel > .action-button {
+  justify-self: end;
+}
+
 .fix-prompt-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

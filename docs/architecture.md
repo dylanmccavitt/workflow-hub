@@ -10,13 +10,13 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a passive Symphony state adapter, read-only GitHub PR/check/review and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, and a main-process local API service for resolving selected issue state through typed IPC. Review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, and a main-process local API service for resolving selected issue state through typed IPC. Review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
 - `electron/preload.cjs`: Exposes minimal safe `workflowHub.issues.list()` and `workflowHub.issues.getState(issueId)` bridges to the renderer without broad filesystem, shell, or arbitrary IPC access.
-- `scripts/lib/local-api-service.mjs`: Node-side service layer for project issue lists, selected issue state, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, Linear cache sync, scoped git probes, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
+- `scripts/lib/local-api-service.mjs`: Node-side service layer for project issue lists, selected issue state, workspace, runner, review, PR state, fix-prompt contracts, and Ready-to-runner dispatch. It owns project config reads, Linear cache sync, scoped git probes, issue worktree creation/branch resolution, explicit In Progress transitions, duplicate writable-run guards, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
 - `scripts/lib/runner-timeline.mjs`: Pure normalization layer that maps Symphony, Codex, and Cursor status/event shapes into queued, starting, running, blocked, cancelling, cancelled, succeeded, failed, and unknown timeline states while preserving raw runner IDs, log paths, and raw provider event payloads for debugging.
 - `scripts/lib/review-fix-prompt.mjs`: Pure prompt builder that composes selected GitHub review comments, failing checks, Linear issue/workpad context, owned paths, and current worktree/branch into an editable fix prompt.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
@@ -72,11 +72,13 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 2. Hub builds an editable fix prompt from selected PR review comments, failing checks, issue/workpad context, owned paths, and current worktree/branch.
 3. User may edit and save the prompt into the local event timeline.
 4. Runner dispatch remains a separate explicit action; prompt generation never starts a runner by itself.
-5. Codex local dispatch runs `codex exec --json` with `--cd` set to the issue worktree, writes JSONL and summary files under the local Workflow Hub data directory, and records sandbox/approval policy with each run.
-6. Cursor SDK local dispatch creates the agent with `local.cwd` set to the issue worktree and uses the configured model/config path from project config.
-7. Hub streams and stores status/events in the local registry.
-8. Hub assembles a normalized run timeline from registry events, stored run records, and passive Symphony state without replacing raw runner logs or provider IDs.
-9. Runner output links back to Linear and PR evidence.
+5. For Ready/Todo issues, the dispatch action resolves or creates the issue worktree, switches a clean canonical-branch workspace onto the issue branch when needed, and moves Linear to In Progress through the explicit Linear write path.
+6. Before starting a writable runner, the local API refuses dispatch when Symphony endpoint state or local registry run records show an active writable runner already owning the same worktree.
+7. Codex local dispatch runs `codex exec --json` with `--cd` set to the issue worktree, writes JSONL and summary files under the local Workflow Hub data directory, and records sandbox/approval policy with each run.
+8. Cursor SDK local dispatch creates the agent with `local.cwd` set to the issue worktree and uses the configured model/config path from project config.
+9. Hub streams and stores status/events in the local registry.
+10. Hub assembles a normalized run timeline from registry events, stored run records, dry-run dispatch events, and passive Symphony state without replacing raw runner logs or provider IDs.
+11. Runner output links back to Linear and PR evidence.
 
 ### iOS Review
 
@@ -88,6 +90,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 ## Important Invariants
 
 - A runner may only mutate the worktree assigned to its issue.
+- Workflow Hub must not dispatch a writable runner when another active writable runner already owns the same worktree.
 - Review actions must target the issue worktree, not the canonical checkout.
 - The GUI cache must be rebuildable from Linear, git, PRs, and local runner logs.
 - Local project config resolves paths and launch metadata only; it is not a source of truth for issue, branch, PR, or review state.

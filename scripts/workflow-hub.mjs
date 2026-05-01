@@ -30,6 +30,7 @@ Usage:
   npm run workflow -- api-state [ISSUE_ID] --json
   npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--dry-run] [--json]
   npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--dry-run] [--json]
+  npm run workflow -- dispatch-ready [ISSUE_ID] --runner codex|cursor --confirmed [--prompt PROMPT] [--dry-run] [--json]
   npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
   npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
@@ -565,6 +566,144 @@ function parseCodexRunArgs(args, registry) {
   };
 }
 
+function parseDispatchReadyArgs(args, registry) {
+  let issueId;
+  let json = false;
+  let dryRun = false;
+  let confirmed = false;
+  let payload = {};
+  let runnerKind;
+  let prompt;
+  let command;
+  let model;
+  let profile;
+  let sandbox;
+  let approvalPolicy;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+
+    if (arg === "--confirmed") {
+      confirmed = true;
+      continue;
+    }
+
+    if (arg === "--payload") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--payload requires a value");
+      }
+      payload = decodePayload(args[index]);
+      continue;
+    }
+
+    if (arg === "--runner") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--runner requires a value");
+      }
+      runnerKind = args[index];
+      continue;
+    }
+
+    if (arg === "--prompt") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--prompt requires a value");
+      }
+      prompt = args[index];
+      continue;
+    }
+
+    if (arg === "--command") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--command requires a value");
+      }
+      command = args[index];
+      continue;
+    }
+
+    if (arg === "--model") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--model requires a value");
+      }
+      model = args[index];
+      continue;
+    }
+
+    if (arg === "--profile") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--profile requires a value");
+      }
+      profile = args[index];
+      continue;
+    }
+
+    if (arg === "--sandbox") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--sandbox requires a value");
+      }
+      sandbox = args[index];
+      continue;
+    }
+
+    if (arg === "--approval-policy") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--approval-policy requires a value");
+      }
+      approvalPolicy = args[index];
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown dispatch-ready flag: ${arg}`);
+    }
+
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg)) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+
+    throw new Error(`Unexpected dispatch-ready argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = payload.issueId
+      ? normalizeIssueId(payload.issueId)
+      : selectIssueId(undefined, registry);
+  }
+
+  return {
+    ...payload,
+    issueId,
+    runnerKind: runnerKind ?? payload.runnerKind ?? "codex",
+    prompt: prompt ?? payload.prompt,
+    command: command ?? payload.command,
+    model: model ?? payload.model,
+    profile: profile ?? payload.profile,
+    sandbox: sandbox ?? payload.sandbox,
+    approvalPolicy: approvalPolicy ?? payload.approvalPolicy,
+    confirmed: confirmed || payload.confirmed === true,
+    dryRun: dryRun || payload.dryRun === true,
+    json
+  };
+}
+
 async function codexRun(args) {
   const registry = readProjectConfig();
   const parsed = parseCodexRunArgs(args, registry);
@@ -596,6 +735,28 @@ async function codexRun(args) {
     `Log: ${payload.logPath}`,
     `Summary: ${payload.summary ?? "none"}`
   ].join("\n"));
+}
+
+async function dispatchReady(args) {
+  const registry = readProjectConfig();
+  const parsed = parseDispatchReadyArgs(args, registry);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService.dispatchReadyIssue(parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log([
+    `${payload.issueId} dispatched to ${payload.runnerKind}${payload.dryRun ? " (dry run)" : ""}.`,
+    `Worktree: ${payload.workspace.path ?? "unknown"}`,
+    `Workspace: ${payload.workspaceOperation}`,
+    `Status: ${payload.statusAction?.status?.name ?? "In Progress"}`,
+    `Runner status: ${payload.runner.status}`,
+    payload.runner.runId ? `Run: ${payload.runner.runId}` : undefined,
+    payload.event ? `Event: ${payload.event.id}` : undefined
+  ].filter(Boolean).join("\n"));
 }
 
 async function cursorRun(args) {
@@ -845,6 +1006,11 @@ async function main() {
 
   if (command === "cursor-run") {
     await cursorRun(args);
+    return;
+  }
+
+  if (command === "dispatch-ready") {
+    await dispatchReady(args);
     return;
   }
 

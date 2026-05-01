@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   createRegistryRepository,
@@ -16,7 +18,8 @@ import {
 } from "./linear-writes.mjs";
 import {
   findWorkspace as defaultFindWorkspace,
-  readProjectConfig as defaultReadProjectConfig
+  readProjectConfig as defaultReadProjectConfig,
+  renderIssuePath
 } from "./project-config.mjs";
 import {
   readSymphonyState as defaultReadSymphonyState
@@ -31,7 +34,8 @@ import {
   buildReviewFixPromptDraft
 } from "./review-fix-prompt.mjs";
 import {
-  buildRunnerTimeline
+  buildRunnerTimeline,
+  normalizeRunnerState
 } from "./runner-timeline.mjs";
 import {
   CURSOR_RUNNER_KIND,
@@ -569,8 +573,497 @@ export function createLocalApiService(options = {}) {
         codexProcessRunner,
         clock
       });
+    },
+
+    async dispatchReadyIssue(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const runnerKind = normalizeDispatchRunner(input?.runnerKind);
+      const userPrompt = sanitizeOptionalNote(input?.prompt);
+      const confirmed = input?.confirmed === true;
+      const dryRun = input?.dryRun === true;
+      const command = sanitizeOptionalString(input?.command, "command");
+      const model = sanitizeOptionalString(input?.model, "model");
+      const profile = sanitizeOptionalString(input?.profile, "profile");
+      const sandbox = sanitizeOptionalString(input?.sandbox, "sandbox");
+      const approvalPolicy = sanitizeOptionalString(input?.approvalPolicy, "approvalPolicy");
+      const registry = readProjectConfig();
+      const project = selectProjectForIssue(issueId, registry.projects);
+
+      if (!project) {
+        throw new LocalApiValidationError("No configured project could be matched to this issue.");
+      }
+
+      let state = await this.getIssueState(issueId);
+      assertDispatchableLinearStatus(state);
+
+      const workspaceResult = ensureDispatchWorkspace({
+        issueId,
+        issue: state.issue.linear,
+        project,
+        registry,
+        findWorkspace,
+        gitRunner,
+        clock
+      });
+
+      state = await this.getIssueState(issueId);
+      assertNoActiveWritableRunner({
+        issueId,
+        workspace: state.workspace,
+        symphonyState: state.symphony,
+        repository: getRegistryRepository()
+      });
+
+      let statusAction;
+      if (!isInProgressStatus(state.issue.linear?.status)) {
+        if (!confirmed) {
+          throw new LocalApiValidationError("Confirmation is required before moving the issue to In Progress and dispatching a runner.");
+        }
+
+        statusAction = await this.applyIssueAction({
+          issueId,
+          actionId: "in-progress",
+          confirmed: true,
+          note: dispatchStatusNote({ runnerKind, dryRun, userPrompt })
+        });
+        state = await this.getIssueState(issueId);
+
+        assertNoActiveWritableRunner({
+          issueId,
+          workspace: state.workspace,
+          symphonyState: state.symphony,
+          repository: getRegistryRepository()
+        });
+      } else if (!confirmed) {
+        throw new LocalApiValidationError("Confirmation is required before dispatching a writable runner.");
+      }
+
+      const dispatchPrompt = buildDispatchPrompt({
+        issueId,
+        runnerKind,
+        state,
+        workspace: state.workspace,
+        userPrompt
+      });
+
+      const runner = runnerKind === "codex"
+        ? await this.startCodexRun({
+            issueId,
+            prompt: dispatchPrompt,
+            command,
+            model,
+            profile,
+            sandbox,
+            approvalPolicy,
+            dryRun
+          })
+        : await this.startCursorRun({
+            issueId,
+            prompt: dispatchPrompt,
+            model,
+            dryRun
+          });
+
+      const dryRunEvent = dryRun
+        ? recordDispatchDryRunEvent({
+            repository: getRegistryRepository(),
+            project,
+            state,
+            runnerKind,
+            runner,
+            dispatchPrompt,
+            clock
+          })
+        : undefined;
+
+      return {
+        issueId,
+        runnerKind: runnerKind === "codex" ? CODEX_RUNNER_KIND : CURSOR_RUNNER_KIND,
+        dryRun,
+        prompt: dispatchPrompt,
+        workspace: state.workspace,
+        workspaceOperation: workspaceResult.operation,
+        statusAction,
+        runner,
+        event: dryRunEvent
+      };
     }
   };
+}
+
+const DISPATCHABLE_LINEAR_STATUSES = new Set(["ready", "todo", "in-progress"]);
+const ACTIVE_RUN_STATES = new Set(["queued", "starting", "running", "blocked", "cancelling"]);
+
+function normalizeDispatchRunner(value) {
+  const normalized = String(value ?? "codex").trim().toLowerCase().replace(/[\s_]+/g, "-");
+
+  if (["codex", "codex-cli"].includes(normalized)) return "codex";
+  if (["cursor", "cursor-sdk"].includes(normalized)) return "cursor";
+
+  throw new LocalApiValidationError("runnerKind must be codex or cursor.");
+}
+
+function assertDispatchableLinearStatus(state) {
+  const status = state?.issue?.linear?.status;
+  const normalized = normalizeComparableStatus(status);
+
+  if (!DISPATCHABLE_LINEAR_STATUSES.has(normalized)) {
+    throw new LocalApiValidationError(
+      `Only Ready, Todo, or In Progress issues can be dispatched. ${state?.issue?.issueId ?? "Issue"} is ${status ?? "unknown"}.`
+    );
+  }
+}
+
+function isInProgressStatus(status) {
+  return normalizeComparableStatus(status) === "in-progress";
+}
+
+function normalizeComparableStatus(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+function ensureDispatchWorkspace({
+  issueId,
+  issue,
+  project,
+  registry,
+  findWorkspace,
+  gitRunner,
+  clock
+}) {
+  const existing = findWorkspace(issueId, registry);
+  const desiredBranch = renderIssueBranch(project.branchTemplate, issueId, issue?.title);
+
+  if (existing) {
+    const operation = ensureExistingWorkspaceBranch({
+      issueId,
+      match: existing,
+      desiredBranch,
+      project,
+      gitRunner
+    });
+
+    return {
+      operation,
+      path: existing.path,
+      branch: desiredBranch
+    };
+  }
+
+  return createIssueWorktree({
+    issueId,
+    issue,
+    project,
+    registry,
+    desiredBranch,
+    findWorkspace,
+    gitRunner,
+    clock
+  });
+}
+
+function ensureExistingWorkspaceBranch({ issueId, match, desiredBranch, project, gitRunner }) {
+  const branch = gitRunner(["branch", "--show-current"], match.path);
+  if (!branch.ok || !branch.stdout || branch.stdout === desiredBranch) {
+    return "resolved";
+  }
+
+  if (branch.stdout !== project.canonicalBranch) {
+    return "resolved";
+  }
+
+  const status = gitRunner(["status", "--short"], match.path);
+  if (status.ok && status.stdout.trim().length > 0) {
+    throw new LocalApiValidationError(
+      `${issueId} workspace is on ${project.canonicalBranch} with local changes; refusing to switch branches before dispatch.`
+    );
+  }
+
+  runGitChecked(["fetch", "origin"], project.canonicalPath, `fetch ${project.displayName} before dispatch`, gitRunner);
+  const baseRef = preferredBaseRef(project, match.path, gitRunner);
+  const switchResult = branchExists(desiredBranch, match.path, gitRunner)
+    ? gitRunner(["switch", desiredBranch], match.path)
+    : gitRunner(["switch", "-c", desiredBranch, baseRef], match.path);
+
+  if (!switchResult.ok) {
+    throw new LocalApiValidationError(
+      `Failed to switch ${issueId} workspace to ${desiredBranch}: ${switchResult.error}`
+    );
+  }
+
+  return "branched";
+}
+
+function createIssueWorktree({
+  issueId,
+  issue,
+  project,
+  registry,
+  desiredBranch,
+  findWorkspace,
+  gitRunner
+}) {
+  const root = project.workspaceRoots?.[0];
+  if (!root) {
+    throw new LocalApiValidationError(`No issue worktree root is configured for ${project.displayName}.`);
+  }
+
+  const workspacePath = path.join(root, renderIssuePath(project.issuePathTemplate ?? "{issueId}", issueId));
+  if (fs.existsSync(workspacePath)) {
+    throw new LocalApiValidationError(
+      `${workspacePath} already exists but was not resolved as the ${issueId} worktree.`
+    );
+  }
+
+  fs.mkdirSync(root, { recursive: true });
+  runGitChecked(["fetch", "origin"], project.canonicalPath, `fetch ${project.displayName} before dispatch`, gitRunner);
+
+  const baseRef = preferredBaseRef(project, project.canonicalPath, gitRunner);
+  const args = branchExists(desiredBranch, project.canonicalPath, gitRunner)
+    ? ["worktree", "add", workspacePath, desiredBranch]
+    : ["worktree", "add", "-b", desiredBranch, workspacePath, baseRef];
+  runGitChecked(args, project.canonicalPath, `create ${issueId} worktree`, gitRunner);
+
+  const resolved = findWorkspace(issueId, registry);
+  return {
+    operation: "created",
+    path: resolved?.path ?? workspacePath,
+    branch: desiredBranch
+  };
+}
+
+function preferredBaseRef(project, cwd, gitRunner) {
+  const remoteRef = `origin/${project.canonicalBranch}`;
+  if (refExists(`refs/remotes/${remoteRef}`, cwd, gitRunner)) return remoteRef;
+  return project.canonicalBranch;
+}
+
+function branchExists(branchName, cwd, gitRunner) {
+  return refExists(`refs/heads/${branchName}`, cwd, gitRunner);
+}
+
+function refExists(refName, cwd, gitRunner) {
+  const result = gitRunner(["show-ref", "--verify", "--quiet", refName], cwd);
+  return result.ok;
+}
+
+function runGitChecked(args, cwd, label, gitRunner) {
+  const result = gitRunner(args, cwd);
+  if (!result.ok) {
+    throw new LocalApiValidationError(`${label} failed: ${result.error}`);
+  }
+  return result;
+}
+
+function renderIssueBranch(template, issueId, title) {
+  const issueIdLower = issueId.toLowerCase();
+  const slug = slugForBranch(title ?? issueId);
+  return (template ?? "feat/{issueIdLower}-{slug}")
+    .replaceAll("{issueId}", issueId)
+    .replaceAll("{issueIdLower}", issueIdLower)
+    .replaceAll("{slug}", slug);
+}
+
+function slugForBranch(value) {
+  const slug = String(value ?? "")
+    .replace(/\[[^\]]+\]/g, " ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+
+  return slug || "issue-work";
+}
+
+function assertNoActiveWritableRunner({ issueId, workspace, symphonyState, repository }) {
+  const workspacePath = workspace?.path;
+  if (!workspacePath) return;
+
+  const activeSymphonyIssue = activeSymphonyIssueForWorkspace(symphonyState, workspacePath);
+  if (activeSymphonyIssue) {
+    throw new LocalApiValidationError(
+      `Refusing to dispatch ${issueId}; Symphony already has ${activeSymphonyIssue.identifier} active for ${workspacePath}.`
+    );
+  }
+
+  const workspaceRecords = repository.listWorkspacesByPath?.(workspacePath) ?? [];
+  for (const workspaceRecord of workspaceRecords) {
+    const runs = repository.listWorkspaceRuns?.(workspaceRecord.id) ?? [];
+    const activeRun = runs.find(isActiveWritableRun);
+    if (activeRun) {
+      throw new LocalApiValidationError(
+        `Refusing to dispatch ${issueId}; ${activeRun.runnerKind} run ${activeRun.id} is already active for ${workspacePath}.`
+      );
+    }
+  }
+}
+
+function activeSymphonyIssueForWorkspace(symphonyState, workspacePath) {
+  if (!symphonyState || symphonyState.source !== "endpoint") return undefined;
+  const issues = [
+    symphonyState.selectedIssue,
+    ...(Array.isArray(symphonyState.issues) ? symphonyState.issues : [])
+  ].filter(Boolean);
+
+  return issues.find((issue) => {
+    if (issue.source !== "endpoint") return false;
+    if (!workspacePathsEqual(issue.workspacePath, workspacePath)) return false;
+    return ["active", "queue"].includes(String(issue.normalizedState ?? "").toLowerCase());
+  });
+}
+
+function workspacePathsEqual(left, right) {
+  if (!left || !right) return false;
+  return path.resolve(left) === path.resolve(right);
+}
+
+function isActiveWritableRun(run) {
+  const normalized = normalizeRunnerState(run?.status);
+  if (!ACTIVE_RUN_STATES.has(normalized)) return false;
+
+  if (run.runnerKind === CODEX_RUNNER_KIND) {
+    const boundary = run.metadata?.permissionBoundary;
+    const sandbox = boundary && typeof boundary === "object" ? boundary.sandbox : run.metadata?.config?.sandbox;
+    return sandbox !== "read-only";
+  }
+
+  return run.runnerKind === CURSOR_RUNNER_KIND || run.runnerKind === "Symphony" || !run.runnerKind;
+}
+
+function dispatchStatusNote({ runnerKind, dryRun, userPrompt }) {
+  const mode = dryRun ? "dry-run " : "";
+  const promptNote = userPrompt ? ` Dispatch note: ${userPrompt}` : "";
+  return `Workflow Hub ${mode}dispatch requested for ${runnerKind === "codex" ? "Codex" : "Cursor SDK"}.${promptNote}`;
+}
+
+function buildDispatchPrompt({ issueId, runnerKind, state, workspace, userPrompt }) {
+  const linear = state.issue.linear;
+  const workpad = linear?.codexWorkpad?.body?.trim();
+  const lines = [
+    `You are working on Linear issue ${issueId}.`,
+    "",
+    "Issue context:",
+    `- Title: ${linear?.title ?? issueId}`,
+    `- URL: ${linear?.url ?? "Unknown"}`,
+    `- Status: ${linear?.status ?? "Unknown"}`,
+    `- Runner: ${runnerKind === "codex" ? "Codex" : "Cursor SDK"}`,
+    `- Worktree: ${workspace?.path ?? "Unresolved"}`,
+    `- Branch: ${workspace?.branch ?? "Unknown"}`,
+    "",
+    "Execution rules:",
+    "- Work only in the resolved issue worktree.",
+    "- Preserve unrelated local changes.",
+    "- Use the Codex Workpad as the handoff source and keep it current before handing off.",
+    "- Run the smallest checks that prove the changed surface.",
+    "",
+    userPrompt ? "Dispatch note:" : undefined,
+    userPrompt,
+    userPrompt ? "" : undefined,
+    workpad ? "Codex Workpad:" : "Codex Workpad: not found.",
+    workpad
+  ].filter((line) => line !== undefined);
+
+  return lines.join("\n").trim();
+}
+
+function recordDispatchDryRunEvent({ repository, project, state, runnerKind, runner, dispatchPrompt, clock }) {
+  const issueRecord = upsertDispatchIssue(repository, project, state, clock);
+  const workspaceRecord = upsertDispatchWorkspace(repository, issueRecord, state.workspace, clock);
+  const runnerLabel = runnerKind === "codex" ? CODEX_RUNNER_KIND : CURSOR_RUNNER_KIND;
+  const runnerKey = runnerKind === "codex" ? "codex" : "cursor";
+  const runId = `${runnerKey}-dispatch-dry-run-${issueRecord.identifier.toLowerCase()}-${clock().getTime()}`;
+
+  return repository.recordEvent({
+    issueId: issueRecord.id,
+    entityType: "run",
+    entityId: runId,
+    type: `${runnerKey}.run.ready`,
+    message: `${issueRecord.identifier} ${runnerLabel} dispatch ready`,
+    payload: {
+      runId,
+      runnerKind: runnerLabel,
+      status: "ready",
+      dryRun: true,
+      prompt: dispatchPrompt,
+      cwd: runner.cwd,
+      workspaceId: workspaceRecord.id,
+      command: runner.command,
+      model: runner.model,
+      logPath: runner.logPath,
+      summaryPath: runner.summaryPath,
+      permissionBoundary: runner.permissionBoundary
+    },
+    createdAt: clock().toISOString()
+  });
+}
+
+function upsertDispatchIssue(repository, project, state, clock) {
+  const linearIssue = state.issue.linear;
+  const existingIssue = repository.getIssueByIdentifier(project.id, state.issue.issueId);
+  const writtenAt = clock().toISOString();
+
+  repository.upsertProject({
+    id: project.id,
+    displayName: project.displayName,
+    repoPath: project.canonicalPath,
+    linearTeamKey: project.linear?.teamKey,
+    linearProjectId: project.linear?.projectId,
+    metadata: {
+      linear: {
+        teamKey: project.linear?.teamKey,
+        projectId: project.linear?.projectId,
+        projectSlug: project.linear?.projectSlug
+      }
+    }
+  });
+
+  return repository.upsertIssue({
+    id: existingIssue?.id ?? linearIssue?.linearId ?? `${project.id}-${state.issue.issueId}`,
+    projectId: project.id,
+    identifier: state.issue.issueId,
+    title: linearIssue?.title ?? state.issue.issueId,
+    status: linearIssue?.status ?? state.issue.status,
+    linearUrl: linearIssue?.url,
+    priority: linearIssue?.priority,
+    metadata: {
+      ...(existingIssue?.metadata ?? {}),
+      source: "linear",
+      linearId: linearIssue?.linearId,
+      updatedAt: linearIssue?.updatedAt,
+      statusType: linearIssue?.statusType,
+      priorityLabel: linearIssue?.priorityLabel,
+      codexWorkpad: linearIssue?.codexWorkpad,
+      linearSync: {
+        ...(existingIssue?.metadata?.linearSync ?? {}),
+        status: "fresh",
+        fetchedAt: writtenAt
+      }
+    }
+  });
+}
+
+function upsertDispatchWorkspace(repository, issueRecord, workspace, clock) {
+  const existingWorkspace = repository
+    .listWorkspacesByPath?.(workspace.path)
+    .find((candidate) => candidate.issueId === issueRecord.id);
+
+  return repository.upsertWorkspace({
+    id: existingWorkspace?.id ?? `${issueRecord.id}:workspace`,
+    issueId: issueRecord.id,
+    path: workspace.path,
+    branch: workspace.branch,
+    headSha: workspace.headSha,
+    dirty: Boolean(workspace.dirty),
+    metadata: {
+      ...(existingWorkspace?.metadata ?? {}),
+      projectId: workspace.projectId,
+      projectName: workspace.projectName,
+      remote: workspace.remote,
+      gitStatus: workspace.gitStatus,
+      touchedAt: clock().toISOString()
+    }
+  });
 }
 
 function buildIssueResponse({

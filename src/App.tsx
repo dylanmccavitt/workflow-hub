@@ -56,6 +56,8 @@ import type {
   ReviewFixPromptDraft,
   ReviewApiState,
   RunnerApiState,
+  RunnerNormalizedState,
+  RunnerTimelineEntry,
   WorkflowEvent,
   WorkflowIssueState
 } from "./lib/workflowHubApi";
@@ -255,9 +257,47 @@ function formatTimestamp(value: string) {
 }
 
 function timelineToneForEvent(event: WorkflowEvent): Tone {
+  const normalizedState = typeof event.payload.normalizedState === "string"
+    ? event.payload.normalizedState as RunnerNormalizedState
+    : undefined;
+  if (normalizedState) return toneForRunnerState(normalizedState);
   if (/failed|error/i.test(event.type)) return "danger";
-  if (/blocked|needs-fixes/i.test(String(event.payload.nextStatus ?? event.message))) return "warning";
+  if (/blocked|needs-fixes|cancel/i.test(String(event.payload.nextStatus ?? event.message))) return "warning";
   return "success";
+}
+
+function toneForRunnerState(state: RunnerNormalizedState): Tone {
+  if (state === "failed") return "danger";
+  if (state === "blocked" || state === "cancelled" || state === "cancelling") return "warning";
+  if (state === "succeeded") return "success";
+  return "neutral";
+}
+
+function timelineFromRunnerTimelineEntry(entry: RunnerTimelineEntry): TimelineEvent {
+  const rawStatus = entry.rawStatus && entry.rawStatus !== entry.normalizedState
+    ? `raw ${labelForStatus(entry.rawStatus)}`
+    : undefined;
+  const debugParts = [
+    entry.detail,
+    entry.runId ? `run ${entry.runId}` : undefined,
+    entry.agentId ? `agent ${entry.agentId}` : undefined,
+    entry.sessionId ? `session ${entry.sessionId}` : undefined,
+    entry.cwd ? `cwd ${entry.cwd}` : undefined,
+    entry.logPath ? `log ${entry.logPath}` : undefined,
+    entry.rawEvent ? "raw event stored" : undefined
+  ];
+
+  return {
+    id: entry.id,
+    label: `${entry.runnerKind}: ${entry.message}`,
+    detail: [
+      formatTimestamp(entry.createdAt),
+      labelForStatus(entry.normalizedState),
+      rawStatus,
+      ...debugParts
+    ].filter(Boolean).join(" | "),
+    tone: toneForRunnerState(entry.normalizedState)
+  };
 }
 
 function timelineFromWorkflowEvent(event: WorkflowEvent): TimelineEvent {
@@ -1465,7 +1505,13 @@ export function App() {
   const linearActions = selectedIssueState?.linearStatusActions ?? fallbackLinearActions;
   const pendingAction = linearActions.find((action) => action.id === pendingActionId);
   const localTimeline = useMemo(
-    () => selectedIssueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [],
+    () => {
+      if (selectedIssueState?.runTimeline?.length) {
+        return selectedIssueState.runTimeline.slice().reverse().map(timelineFromRunnerTimelineEntry);
+      }
+
+      return selectedIssueState?.issue.events?.slice().reverse().map(timelineFromWorkflowEvent) ?? [];
+    },
     [selectedIssueState]
   );
   const visibleTimeline = localTimeline.length > 0 ? [...localTimeline, ...timeline] : timeline;

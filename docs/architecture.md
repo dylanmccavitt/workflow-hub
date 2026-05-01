@@ -16,7 +16,8 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
 - `electron/preload.cjs`: Exposes a minimal safe `workflowHub.issues.getState(issueId)` bridge to the renderer without broad filesystem, shell, or arbitrary IPC access.
-- `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, scoped git probes, runner dispatch, timeline event writes, and unavailable-adapter responses.
+- `scripts/lib/local-api-service.mjs`: Node-side service layer for project, issue, workspace, runner, review, PR state, and fix-prompt contracts. It owns project config reads, scoped git probes, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
+- `scripts/lib/runner-timeline.mjs`: Pure normalization layer that maps Symphony, Codex, and Cursor status/event shapes into queued, starting, running, blocked, cancelling, cancelled, succeeded, failed, and unknown timeline states while preserving raw runner IDs, log paths, and raw provider event payloads for debugging.
 - `scripts/lib/review-fix-prompt.mjs`: Pure prompt builder that composes selected GitHub review comments, failing checks, Linear issue/workpad context, owned paths, and current worktree/branch into an editable fix prompt.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
 - `scripts/lib/linear-writes.mjs`: Explicit Linear status action adapter. It maps allowed workflow states, enforces confirmation for dispatching or externally visible states, updates the persistent `## Codex Workpad` comment by merging structured sections, and leaves passive sync read-only.
@@ -73,7 +74,8 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 5. Codex local dispatch runs `codex exec --json` with `--cd` set to the issue worktree, writes JSONL and summary files under the local Workflow Hub data directory, and records sandbox/approval policy with each run.
 6. Cursor SDK local dispatch creates the agent with `local.cwd` set to the issue worktree and uses the configured model/config path from project config.
 7. Hub streams and stores status/events in the local registry.
-8. Runner output links back to Linear and PR evidence.
+8. Hub assembles a normalized run timeline from registry events, stored run records, and passive Symphony state without replacing raw runner logs or provider IDs.
+9. Runner output links back to Linear and PR evidence.
 
 ### iOS Review
 

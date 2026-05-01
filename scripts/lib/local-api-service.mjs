@@ -31,6 +31,9 @@ import {
   buildReviewFixPromptDraft
 } from "./review-fix-prompt.mjs";
 import {
+  buildRunnerTimeline
+} from "./runner-timeline.mjs";
+import {
   CURSOR_RUNNER_KIND,
   cursorConfigForProject,
   startCursorLocalRun as defaultStartCursorLocalRun
@@ -468,6 +471,7 @@ function buildIssueResponse({
   const runnerStates = buildRunnerStates({ symphonyState, issue, project, workspace });
   const reviewStates = buildReviewStates(project);
   const normalizedPullRequestStates = buildPullRequestStates(pullRequestStates);
+  const runTimeline = buildRunnerTimeline({ issue, symphonyState });
 
   return {
     apiVersion: LOCAL_API_VERSION,
@@ -475,6 +479,7 @@ function buildIssueResponse({
     project,
     workspace,
     symphony: symphonyState,
+    runTimeline,
     linearStatusActions: LINEAR_STATUS_ACTIONS,
     runners: runnerStates,
     reviews: reviewStates,

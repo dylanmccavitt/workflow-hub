@@ -304,6 +304,10 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
   assert.equal(state.workspace.branch, "feat/age-349-local-api-boundary");
   assert.equal(state.workspace.dirty, true);
   assert.equal(state.symphony.selectedIssue.normalizedState, "active");
+  assert.equal(state.runTimeline.length, 1);
+  assert.equal(state.runTimeline[0].runnerKind, "Symphony");
+  assert.equal(state.runTimeline[0].normalizedState, "running");
+  assert.equal(state.runTimeline[0].rawEvent.workspacePath, "/worktrees/workflow-hub/AGE-349");
   assert.equal(state.runners.find((runner) => runner.kind === "Symphony").status, "available");
   assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "available");
   assert.match(state.runners.find((runner) => runner.kind === "Codex").detail, /workspace-write/);

@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("workflowHub", {
     },
     startCursorRun(input) {
       return ipcRenderer.invoke("workflow-hub:start-cursor-run", input);
+    },
+    dispatchReady(input) {
+      return ipcRenderer.invoke("workflow-hub:dispatch-ready", input);
     }
   }
 });

@@ -199,6 +199,29 @@ async function startCursorRun(_event, input) {
 
 ipcMain.handle("workflow-hub:start-cursor-run", startCursorRun);
 
+async function dispatchReady(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("dispatch input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+  if (input.runnerKind !== undefined && typeof input.runnerKind !== "string") {
+    throw new Error("runnerKind must be a string when provided.");
+  }
+
+  return runWorkflowJsonCommand([
+    "dispatch-ready",
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ], {
+    timeoutMs: 15 * 60 * 1000
+  });
+}
+
+ipcMain.handle("workflow-hub:dispatch-ready", dispatchReady);
+
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {
     normalizeIssueId,

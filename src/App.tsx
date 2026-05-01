@@ -50,6 +50,8 @@ import type {
   AdapterState,
   CodexRunResult,
   CursorRunResult,
+  DispatchReadyResult,
+  DispatchRunnerKind,
   GitHubCheck,
   GitHubPullRequestApiState,
   GitHubPullRequestDetails,
@@ -258,6 +260,11 @@ function runnerForLinearIssue(issue: LinearIssueDetails): IssueCard["runner"] {
   if (/cursor/i.test(searchable)) return "Cursor SDK";
   if (/symphony/i.test(searchable)) return "Symphony";
   return "Codex";
+}
+
+function dispatchRunnerForIssue(issue: LinearIssueDetails | undefined): DispatchRunnerKind {
+  if (!issue) return "codex";
+  return runnerForLinearIssue(issue) === "Cursor SDK" ? "cursor" : "codex";
 }
 
 function phaseForLinearIssue(issue: LinearIssueDetails) {
@@ -1257,6 +1264,163 @@ function CursorRunPanel({
   );
 }
 
+function ReadyDispatchPanel({
+  issueId,
+  issueState,
+  onFinished
+}: {
+  issueId: string;
+  issueState: WorkflowIssueState | undefined;
+  onFinished: () => Promise<void>;
+}) {
+  const linearIssue = issueState?.issue.linear;
+  const defaultRunnerKind = dispatchRunnerForIssue(linearIssue);
+  const [runnerKind, setRunnerKind] = useState<DispatchRunnerKind>(defaultRunnerKind);
+  const [prompt, setPrompt] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string>();
+  const [lastResult, setLastResult] = useState<DispatchReadyResult>();
+  const currentStatus = linearIssue?.status ?? issueState?.issue.status ?? "Unknown";
+  const dispatchable = ["Ready", "Todo", "In Progress"].includes(currentStatus);
+  const canDispatch = Boolean(
+    window.workflowHub?.issues?.dispatchReady
+    && issueState
+    && dispatchable
+    && confirmed
+    && !isDispatching
+  );
+
+  useEffect(() => {
+    setRunnerKind(defaultRunnerKind);
+    setPrompt("");
+    setConfirmed(false);
+    setDryRun(false);
+    setDispatchError(undefined);
+    setLastResult(undefined);
+  }, [defaultRunnerKind, issueId]);
+
+  const handleDispatch = async () => {
+    if (!window.workflowHub?.issues?.dispatchReady) return;
+
+    setIsDispatching(true);
+    setDispatchError(undefined);
+    try {
+      const result = await window.workflowHub.issues.dispatchReady({
+        issueId,
+        runnerKind,
+        prompt: prompt.trim() || undefined,
+        confirmed,
+        dryRun
+      });
+      setLastResult(result);
+      setPrompt("");
+      setConfirmed(false);
+      await onFinished();
+    } catch (error: unknown) {
+      setDispatchError(error instanceof Error ? error.message : String(error));
+      await onFinished();
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  return (
+    <section className="dispatch-panel" aria-label="Ready issue dispatch">
+      <div className="section-heading">
+        <p className="eyebrow">Flow</p>
+        <h2>Ready Dispatch</h2>
+      </div>
+
+      <div className="dispatch-grid">
+        <label>
+          <span>Runner</span>
+          <select
+            onChange={(event) => setRunnerKind(event.target.value as DispatchRunnerKind)}
+            value={runnerKind}
+          >
+            <option value="codex">Codex</option>
+            <option value="cursor">Cursor SDK</option>
+          </select>
+        </label>
+        <label className="dispatch-prompt">
+          <span>Dispatch Note</span>
+          <textarea
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Optional note for the runner prompt"
+            rows={4}
+            value={prompt}
+          />
+        </label>
+      </div>
+
+      <dl className="dispatch-meta">
+        <div>
+          <dt>Status</dt>
+          <dd>{currentStatus}</dd>
+        </div>
+        <div>
+          <dt>Worktree</dt>
+          <dd>{issueState?.workspace.path ?? "Created on dispatch"}</dd>
+        </div>
+        <div>
+          <dt>Branch</dt>
+          <dd>{issueState?.workspace.branch ?? linearIssue?.branchName ?? "Resolved on dispatch"}</dd>
+        </div>
+        <div>
+          <dt>Latest</dt>
+          <dd>{lastResult ? `${lastResult.runnerKind} ${labelForStatus(lastResult.runner.status)}` : "No dispatch from this panel"}</dd>
+        </div>
+      </dl>
+
+      <div className="dispatch-options">
+        <label className="risk-check dispatch-check">
+          <input
+            checked={confirmed}
+            onChange={(event) => setConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Confirm In Progress transition and runner dispatch.</span>
+        </label>
+        <label className="risk-check dispatch-check">
+          <input
+            checked={dryRun}
+            onChange={(event) => setDryRun(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Dry-run the runner start.</span>
+        </label>
+      </div>
+
+      {!dispatchable ? (
+        <StateNotice
+          compact
+          detail={`Current status is ${currentStatus}.`}
+          title="Dispatch unavailable"
+          tone="warning"
+        />
+      ) : null}
+      {dispatchError ? <p className="write-error">{dispatchError}</p> : null}
+      {lastResult ? (
+        <p className="prompt-save-note">
+          {lastResult.workspaceOperation} worktree | {lastResult.runnerKind} {labelForStatus(lastResult.runner.status)}
+        </p>
+      ) : null}
+
+      <button
+        className="action-button primary"
+        disabled={!canDispatch}
+        onClick={handleDispatch}
+        type="button"
+      >
+        <Play size={15} />
+        {isDispatching ? "Dispatching..." : "Dispatch"}
+      </button>
+    </section>
+  );
+}
+
 function ResolutionPanel({
   selectedIssue,
   issueState,
@@ -2196,6 +2360,12 @@ export function App() {
                   writeError={writeError}
                 />
               ) : null}
+
+              <ReadyDispatchPanel
+                issueId={selected.id}
+                issueState={selectedIssueState}
+                onFinished={refreshDashboard}
+              />
 
               <FixPromptPanel
                 issueId={selected.id}

@@ -544,6 +544,33 @@ export interface CursorRunResult {
   event?: WorkflowEvent;
 }
 
+export type DispatchRunnerKind = "codex" | "cursor";
+
+export interface DispatchReadyInput {
+  issueId: string;
+  runnerKind: DispatchRunnerKind;
+  prompt?: string;
+  command?: string;
+  model?: string;
+  profile?: string;
+  sandbox?: string;
+  approvalPolicy?: string;
+  confirmed: boolean;
+  dryRun?: boolean;
+}
+
+export interface DispatchReadyResult {
+  issueId: string;
+  runnerKind: "Codex" | "Cursor SDK" | string;
+  dryRun: boolean;
+  prompt: string;
+  workspace: WorkspaceApiState;
+  workspaceOperation: "resolved" | "created" | "branched" | string;
+  statusAction?: LinearIssueActionResult;
+  runner: CodexRunResult | CursorRunResult;
+  event?: WorkflowEvent;
+}
+
 export interface ReviewFixPromptDraft {
   issueId: string;
   title: string;
@@ -585,5 +612,6 @@ export interface WorkflowHubApi {
     saveFixPrompt(input: SaveReviewFixPromptInput): Promise<ReviewFixPromptSaveResult>;
     startCodexRun(input: CodexRunInput): Promise<CodexRunResult>;
     startCursorRun(input: CursorRunInput): Promise<CursorRunResult>;
+    dispatchReady(input: DispatchReadyInput): Promise<DispatchReadyResult>;
   };
 }

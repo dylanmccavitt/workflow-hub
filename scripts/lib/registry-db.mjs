@@ -352,6 +352,14 @@ export function createRegistryRepository(database, options = {}) {
       `).all(issueId).map(workspaceFromRow);
     },
 
+    listWorkspacesByPath(workspacePath) {
+      return database.prepare(`
+        SELECT * FROM workspaces
+        WHERE path = ?
+        ORDER BY updated_at DESC, id
+      `).all(requireString(workspacePath, "workspace.path")).map(workspaceFromRow);
+    },
+
     upsertRun(run) {
       const current = now();
       database.prepare(`
@@ -401,6 +409,14 @@ export function createRegistryRepository(database, options = {}) {
         WHERE issue_id = ?
         ORDER BY created_at DESC, id
       `).all(issueId).map(runFromRow);
+    },
+
+    listWorkspaceRuns(workspaceId) {
+      return database.prepare(`
+        SELECT * FROM runs
+        WHERE workspace_id = ?
+        ORDER BY created_at DESC, id
+      `).all(requireString(workspaceId, "workspace.id")).map(runFromRow);
     },
 
     upsertPullRequest(pullRequest) {

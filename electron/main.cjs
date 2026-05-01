@@ -148,6 +148,27 @@ async function saveFixPrompt(_event, input) {
 
 ipcMain.handle("workflow-hub:save-fix-prompt", saveFixPrompt);
 
+async function startCursorRun(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Cursor run input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+  if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
+    throw new Error("prompt must be a non-empty string.");
+  }
+
+  return runWorkflowJsonCommand([
+    "cursor-run",
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ]);
+}
+
+ipcMain.handle("workflow-hub:start-cursor-run", startCursorRun);
+
 async function resolveIssueWorkspace(_event, inputIssueId) {
   const {
     normalizeIssueId,

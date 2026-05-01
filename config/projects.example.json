@@ -46,6 +46,13 @@
         ],
         "issuePathTemplate": "{issueId}",
         "branchTemplate": "feat/{issueIdLower}-{slug}"
+      },
+      "runners": {
+        "cursor": {
+          "model": "composer-2",
+          "configPath": ".cursor",
+          "apiKeyEnv": "CURSOR_API_KEY"
+        }
       }
     }
   ]

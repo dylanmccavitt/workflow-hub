@@ -9,6 +9,7 @@ export interface ProjectConfig {
   linear?: ProjectLinearConfig;
   repo: ProjectRepoConfig;
   worktrees: ProjectWorktreeConfig;
+  runners?: ProjectRunnerConfig;
   ios?: ProjectIosConfig;
 }
 
@@ -27,6 +28,16 @@ export interface ProjectWorktreeConfig {
   roots: string[];
   issuePathTemplate?: string;
   branchTemplate?: string;
+}
+
+export interface ProjectRunnerConfig {
+  cursor?: ProjectCursorRunnerConfig;
+}
+
+export interface ProjectCursorRunnerConfig {
+  model?: string;
+  configPath?: string;
+  apiKeyEnv?: string;
 }
 
 export interface ProjectIosConfig {

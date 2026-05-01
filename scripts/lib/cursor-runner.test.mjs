@@ -1,0 +1,214 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  cursorConfigForProject,
+  startCursorLocalRun
+} from "./cursor-runner.mjs";
+import {
+  createRegistryRepository,
+  openRegistryDatabase
+} from "./registry-db.mjs";
+
+function memoryRepository() {
+  const database = openRegistryDatabase(":memory:");
+  return createRegistryRepository(database, {
+    clock: () => new Date("2026-05-01T12:00:00.000Z")
+  });
+}
+
+const project = {
+  id: "workflow-hub",
+  displayName: "Workflow Hub",
+  canonicalPath: "/repo/workflow-hub",
+  canonicalBranch: "main",
+  linear: {
+    teamKey: "AGE",
+    projectSlug: "workflow-hub"
+  },
+  workspaceRoots: ["/worktrees/workflow-hub"],
+  runners: {
+    cursor: {
+      model: "composer-2",
+      configPath: ".cursor",
+      apiKeyEnv: "CURSOR_API_KEY"
+    }
+  }
+};
+
+const state = {
+  issue: {
+    issueId: "AGE-361",
+    source: "linear",
+    status: "available",
+    linear: {
+      linearId: "linear-issue-AGE-361",
+      identifier: "AGE-361",
+      title: "[Cursor SDK] Local runner integration",
+      status: "In Progress",
+      url: "https://linear.app/agentcee/issue/AGE-361/example",
+      priority: 2,
+      labels: [],
+      blockers: [],
+      blockedIssues: [],
+      links: [],
+      pullRequests: [],
+      cache: {
+        status: "fresh",
+        stale: false
+      }
+    }
+  },
+  workspace: {
+    issueId: "AGE-361",
+    status: "available",
+    found: true,
+    projectId: "workflow-hub",
+    projectName: "Workflow Hub",
+    path: "/worktrees/workflow-hub/AGE-361",
+    branch: "feat/age-361-cursor-sdk-local-runner",
+    headSha: "abc1234",
+    remote: "git@github.com:DylanMcCavitt/workflow-hub.git",
+    dirty: false,
+    gitStatus: ["## feat/age-361-cursor-sdk-local-runner"]
+  }
+};
+
+test("resolves Cursor config paths relative to the issue worktree", () => {
+  const config = cursorConfigForProject(project, "/worktrees/workflow-hub/AGE-361");
+
+  assert.equal(config.model, "composer-2");
+  assert.equal(config.configPath, ".cursor");
+  assert.equal(config.resolvedConfigPath, "/worktrees/workflow-hub/AGE-361/.cursor");
+  assert.equal(config.apiKeyEnv, "CURSOR_API_KEY");
+});
+
+test("starts a local Cursor SDK run with the issue worktree cwd and persists stream events", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+  const oldApiKey = process.env.CURSOR_API_KEY;
+  delete process.env.CURSOR_API_KEY;
+  t.after(() => {
+    if (oldApiKey === undefined) {
+      delete process.env.CURSOR_API_KEY;
+    } else {
+      process.env.CURSOR_API_KEY = oldApiKey;
+    }
+  });
+  let createOptions;
+  let sentPrompt;
+
+  const fakeSdk = {
+    Agent: {
+      async create(options) {
+        createOptions = options;
+        return {
+          agentId: "cursor-agent-1",
+          async send(prompt) {
+            sentPrompt = prompt;
+            return {
+              id: "cursor-run-1",
+              agentId: "cursor-agent-1",
+              status: "running",
+              supports(operation) {
+                return operation === "wait";
+              },
+              async *stream() {
+                yield {
+                  type: "status",
+                  agent_id: "cursor-agent-1",
+                  run_id: "cursor-run-1",
+                  status: "RUNNING",
+                  message: "Working"
+                };
+                yield {
+                  type: "assistant",
+                  agent_id: "cursor-agent-1",
+                  run_id: "cursor-run-1",
+                  message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "Implemented the requested runner." }]
+                  }
+                };
+              },
+              async wait() {
+                return {
+                  id: "cursor-run-1",
+                  status: "finished",
+                  result: "Implemented the requested runner.",
+                  model: { id: "composer-2" }
+                };
+              }
+            };
+          },
+          close() {}
+        };
+      }
+    }
+  };
+
+  const result = await startCursorLocalRun({
+    issueId: "age-361",
+    prompt: "Wire the local runner.",
+    project,
+    state,
+    workspace: state.workspace,
+    repository,
+    cursorSdkLoader: async () => fakeSdk,
+    clock: () => new Date("2026-05-01T12:00:00.000Z")
+  });
+
+  assert.equal(createOptions.local.cwd, "/worktrees/workflow-hub/AGE-361");
+  assert.deepEqual(createOptions.model, { id: "composer-2" });
+  assert.equal("apiKey" in createOptions, false);
+  assert.equal(sentPrompt, "Wire the local runner.");
+  assert.equal(result.agentId, "cursor-agent-1");
+  assert.equal(result.runId, "cursor-run-1");
+  assert.equal(result.status, "finished");
+  assert.equal(result.streamedEventCount, 2);
+
+  const issue = repository.getIssueByIdentifier("workflow-hub", "AGE-361");
+  const runs = repository.listIssueRuns(issue.id);
+  const events = repository.listIssueEvents(issue.id);
+
+  assert.equal(runs[0].id, "cursor-run-1");
+  assert.equal(runs[0].runnerKind, "Cursor SDK");
+  assert.equal(runs[0].status, "finished");
+  assert.equal(runs[0].summary, "Implemented the requested runner.");
+  assert.equal(runs[0].metadata.agentId, "cursor-agent-1");
+  assert.equal(runs[0].metadata.runId, "cursor-run-1");
+  assert.equal(runs[0].metadata.model, "composer-2");
+  assert.equal(runs[0].metadata.prompt, "Wire the local runner.");
+  assert.deepEqual(
+    events.map((event) => event.type),
+    [
+      "cursor.run.started",
+      "cursor.event.status",
+      "cursor.event.assistant",
+      "cursor.run.finished"
+    ]
+  );
+});
+
+test("dry-run validates the local Cursor target without creating registry records", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const result = await startCursorLocalRun({
+    issueId: "AGE-361",
+    prompt: "Check local Cursor target.",
+    project,
+    state,
+    workspace: state.workspace,
+    repository,
+    dryRun: true,
+    clock: () => new Date("2026-05-01T12:00:00.000Z")
+  });
+
+  const issue = repository.getIssueByIdentifier("workflow-hub", "AGE-361");
+
+  assert.equal(result.dryRun, true);
+  assert.equal(result.cwd, "/worktrees/workflow-hub/AGE-361");
+  assert.equal(result.configPath, "/worktrees/workflow-hub/AGE-361/.cursor");
+  assert.equal(repository.listIssueRuns(issue.id).length, 0);
+  assert.equal(repository.listIssueEvents(issue.id).length, 0);
+});

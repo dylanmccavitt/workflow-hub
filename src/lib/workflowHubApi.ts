@@ -73,6 +73,20 @@ export interface WorkflowEvent {
   createdAt: string;
 }
 
+export interface WorkflowRunRecord {
+  id: string;
+  issueId: string;
+  workspaceId?: string;
+  runnerKind: "Symphony" | "Codex" | "Cursor SDK" | string;
+  status: "running" | "finished" | "error" | "cancelled" | string;
+  startedAt?: string;
+  finishedAt?: string;
+  summary?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LinearStatusAction {
   id: string;
   label: string;
@@ -110,6 +124,7 @@ export interface IssueApiState {
   linear?: LinearIssueDetails;
   cache?: LinearCacheState;
   events?: WorkflowEvent[];
+  runs?: WorkflowRunRecord[];
 }
 
 export interface ProjectApiState {
@@ -120,6 +135,13 @@ export interface ProjectApiState {
   canonicalPath?: string;
   canonicalBranch?: string;
   iosConfigured?: boolean;
+  runners?: {
+    cursor?: {
+      model: string;
+      configPath: string;
+      apiKeyEnv?: string;
+    };
+  };
   linear?: {
     teamKey?: string;
     projectId?: string;
@@ -148,6 +170,12 @@ export interface RunnerApiState {
   status: EntityStatus;
   detail: string;
   adapter: AdapterState;
+  config?: {
+    model?: string;
+    configPath?: string;
+    apiKeyEnv?: string;
+  };
+  latestRun?: WorkflowRunRecord;
 }
 
 export interface SymphonyIssueState {
@@ -398,6 +426,30 @@ export interface SaveReviewFixPromptInput extends ReviewFixPromptInput {
   prompt: string;
 }
 
+export interface CursorRunInput {
+  issueId: string;
+  prompt: string;
+  model?: string;
+  dryRun?: boolean;
+}
+
+export interface CursorRunResult {
+  issueId: string;
+  dryRun: boolean;
+  status: string;
+  prompt: string;
+  model: string;
+  cwd: string;
+  configPath: string;
+  apiKeyEnv?: string;
+  agentId?: string;
+  runId?: string;
+  summary?: string;
+  streamedEventCount?: number;
+  run?: WorkflowRunRecord;
+  event?: WorkflowEvent;
+}
+
 export interface ReviewFixPromptDraft {
   issueId: string;
   title: string;
@@ -436,5 +488,6 @@ export interface WorkflowHubApi {
     applyAction(input: LinearIssueActionInput): Promise<LinearIssueActionResult>;
     draftFixPrompt(input: ReviewFixPromptInput): Promise<ReviewFixPromptDraft>;
     saveFixPrompt(input: SaveReviewFixPromptInput): Promise<ReviewFixPromptSaveResult>;
+    startCursorRun(input: CursorRunInput): Promise<CursorRunResult>;
   };
 }

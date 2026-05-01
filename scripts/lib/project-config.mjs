@@ -10,6 +10,9 @@ export const localConfigPath = path.join(repoRoot, "config", "projects.json");
 const SCHEMA_VERSION = 1;
 const DEFAULT_SIMULATOR_NAME = "iPhone 17 Pro";
 const DEFAULT_DERIVED_DATA_ROOT = "/tmp";
+const DEFAULT_CURSOR_MODEL = "composer-2";
+const DEFAULT_CURSOR_CONFIG_PATH = ".cursor";
+const DEFAULT_CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
 const ISSUE_ID_PATTERN = /[a-z]+-\d+/i;
 
 export class ProjectConfigValidationError extends Error {
@@ -280,6 +283,23 @@ function validateProject(project, index, seenIds) {
     }
   }
 
+  if (project.runners !== undefined) {
+    if (!isRecord(project.runners)) {
+      errors.push(`${prefix}.runners must be an object when present`);
+    } else {
+      const cursor = project.runners.cursor;
+      if (cursor !== undefined) {
+        if (!isRecord(cursor)) {
+          errors.push(`${prefix}.runners.cursor must be an object when present`);
+        } else {
+          validateOptionalString(errors, cursor.model, `${prefix}.runners.cursor.model`);
+          validateOptionalString(errors, cursor.configPath, `${prefix}.runners.cursor.configPath`);
+          validateOptionalString(errors, cursor.apiKeyEnv, `${prefix}.runners.cursor.apiKeyEnv`);
+        }
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -321,6 +341,17 @@ function normalizeProject(project) {
         derivedDataRoot: expandPath(project.ios.derivedDataRoot ?? DEFAULT_DERIVED_DATA_ROOT)
       }
     : undefined;
+  const runners = project.runners
+    ? {
+        cursor: project.runners.cursor
+          ? {
+              model: project.runners.cursor.model ?? DEFAULT_CURSOR_MODEL,
+              configPath: project.runners.cursor.configPath ?? DEFAULT_CURSOR_CONFIG_PATH,
+              apiKeyEnv: project.runners.cursor.apiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV
+            }
+          : undefined
+      }
+    : undefined;
 
   return {
     id: project.id,
@@ -331,6 +362,7 @@ function normalizeProject(project) {
     workspaceRoots: project.worktrees.roots.map(expandPath),
     issuePathTemplate: project.worktrees.issuePathTemplate ?? "{issueId}",
     branchTemplate: project.worktrees.branchTemplate ?? "feat/{issueIdLower}-{slug}",
+    runners,
     ios
   };
 }

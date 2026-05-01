@@ -84,6 +84,30 @@
             }
           }
         },
+        "runners": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "$ref": "#/$defs/nonEmptyString",
+                  "default": "composer-2"
+                },
+                "configPath": {
+                  "$ref": "#/$defs/nonEmptyString",
+                  "default": ".cursor"
+                },
+                "apiKeyEnv": {
+                  "$ref": "#/$defs/nonEmptyString",
+                  "default": "CURSOR_API_KEY"
+                }
+              }
+            }
+          }
+        },
         "ios": {
           "type": "object",
           "additionalProperties": false,

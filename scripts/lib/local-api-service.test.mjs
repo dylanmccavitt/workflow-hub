@@ -21,6 +21,13 @@ const registry = {
         teamKey: "AGE",
         projectSlug: "workflow-hub"
       },
+      runners: {
+        cursor: {
+          model: "composer-2",
+          configPath: ".cursor",
+          apiKeyEnv: "CURSOR_API_KEY"
+        }
+      },
       workspaceRoots: ["/worktrees/workflow-hub"]
     }
   ],
@@ -294,6 +301,8 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
   assert.equal(state.symphony.selectedIssue.normalizedState, "active");
   assert.equal(state.runners.find((runner) => runner.kind === "Symphony").status, "available");
   assert.equal(state.runners.find((runner) => runner.kind === "Codex").status, "unavailable");
+  assert.equal(state.runners.find((runner) => runner.kind === "Cursor SDK").status, "available");
+  assert.match(state.runners.find((runner) => runner.kind === "Cursor SDK").detail, /composer-2/);
   assert.equal(state.pullRequests[0].status, "available");
   assert.equal(state.pullRequests[0].pullRequest.number, 12);
   assert.equal(state.pullRequests[1].provider, "Graphite");

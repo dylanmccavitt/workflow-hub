@@ -556,6 +556,61 @@ h1 {
   gap: 10px;
 }
 
+.cursor-run-panel {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #2a2b24;
+}
+
+.cursor-run-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.42fr) minmax(280px, 1fr);
+  gap: 12px;
+}
+
+.cursor-run-grid label {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  color: #b9baad;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cursor-run-grid input,
+.cursor-run-grid textarea {
+  width: 100%;
+  border: 1px solid #35382d;
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #f5f0e6;
+  background: #10110f;
+  font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.cursor-run-grid input {
+  min-height: 44px;
+}
+
+.cursor-run-grid textarea {
+  min-height: 124px;
+  resize: vertical;
+}
+
+.cursor-run-meta {
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.8fr);
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #2f3128;
+  border-radius: 8px;
+  background: #11120f;
+}
+
+.cursor-run-panel > .action-button {
+  justify-self: end;
+}
+
 .secondary-button {
   min-height: 36px;
   padding: 0 12px;

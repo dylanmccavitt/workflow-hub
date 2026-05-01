@@ -105,6 +105,33 @@
                   "default": "CURSOR_API_KEY"
                 }
               }
+            },
+            "codex": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "command": {
+                  "$ref": "#/$defs/nonEmptyString",
+                  "default": "codex"
+                },
+                "model": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "profile": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "sandbox": {
+                  "enum": ["read-only", "workspace-write"],
+                  "default": "workspace-write"
+                },
+                "approvalPolicy": {
+                  "enum": ["untrusted", "on-request", "on-failure", "never"],
+                  "default": "never"
+                },
+                "logRoot": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              }
             }
           }
         },

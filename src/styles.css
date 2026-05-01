@@ -556,7 +556,8 @@ h1 {
   gap: 10px;
 }
 
-.cursor-run-panel {
+.cursor-run-panel,
+.codex-run-panel {
   display: grid;
   gap: 14px;
   padding-bottom: 22px;
@@ -579,6 +580,7 @@ h1 {
 }
 
 .cursor-run-grid input,
+.cursor-run-grid select,
 .cursor-run-grid textarea {
   width: 100%;
   border: 1px solid #35382d;
@@ -589,7 +591,8 @@ h1 {
   font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-.cursor-run-grid input {
+.cursor-run-grid input,
+.cursor-run-grid select {
   min-height: 44px;
 }
 
@@ -598,8 +601,12 @@ h1 {
   resize: vertical;
 }
 
+.codex-prompt {
+  grid-column: 1 / -1;
+}
+
 .cursor-run-meta {
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.8fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   padding: 12px;
   border: 1px solid #2f3128;
@@ -607,7 +614,12 @@ h1 {
   background: #11120f;
 }
 
-.cursor-run-panel > .action-button {
+.codex-run-meta {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cursor-run-panel > .action-button,
+.codex-run-panel > .action-button {
   justify-self: end;
 }
 

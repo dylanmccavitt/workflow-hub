@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld("workflowHub", {
     saveFixPrompt(input) {
       return ipcRenderer.invoke("workflow-hub:save-fix-prompt", input);
     },
+    startCodexRun(input) {
+      return ipcRenderer.invoke("workflow-hub:start-codex-run", input);
+    },
     startCursorRun(input) {
       return ipcRenderer.invoke("workflow-hub:start-cursor-run", input);
     }

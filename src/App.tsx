@@ -42,6 +42,7 @@ import type {
 } from "./lib/types";
 import type {
   AdapterState,
+  CodexRunResult,
   CursorRunResult,
   GitHubCheck,
   GitHubPullRequestApiState,
@@ -260,6 +261,28 @@ function timelineToneForEvent(event: WorkflowEvent): Tone {
 }
 
 function timelineFromWorkflowEvent(event: WorkflowEvent): TimelineEvent {
+  if (/^codex\.(run|event)\./.test(event.type)) {
+    const status = typeof event.payload.status === "string" ? labelForStatus(event.payload.status) : event.type;
+    const summary = typeof event.payload.summary === "string" ? event.payload.summary : undefined;
+    const cwd = typeof event.payload.cwd === "string" ? `cwd ${event.payload.cwd}` : undefined;
+    const logPath = typeof event.payload.logPath === "string" ? `log ${event.payload.logPath}` : undefined;
+    const boundary = event.payload.permissionBoundary && typeof event.payload.permissionBoundary === "object"
+      ? event.payload.permissionBoundary as Record<string, unknown>
+      : undefined;
+    const boundaryDetail = typeof boundary?.sandbox === "string" && typeof boundary.approvalPolicy === "string"
+      ? `sandbox ${boundary.sandbox}; approvals ${boundary.approvalPolicy}`
+      : undefined;
+
+    return {
+      id: event.id,
+      label: event.message,
+      detail: [formatTimestamp(event.createdAt), status, summary, cwd, boundaryDetail, logPath]
+        .filter(Boolean)
+        .join(" | "),
+      tone: timelineToneForEvent(event)
+    };
+  }
+
   const previousStatus = typeof event.payload.previousStatus === "string"
     ? event.payload.previousStatus
     : undefined;
@@ -719,6 +742,170 @@ function FixPromptPanel({
           {isSaving ? "Saving..." : "Save to Timeline"}
         </button>
       </div>
+    </section>
+  );
+}
+
+function CodexRunPanel({
+  issueId,
+  issueState,
+  onFinished
+}: {
+  issueId: string;
+  issueState: WorkflowIssueState | undefined;
+  onFinished: () => Promise<void>;
+}) {
+  const codexRunner = issueState?.runners.find((runner) => runner.kind === "Codex");
+  const defaultCommand = codexRunner?.config?.command ?? "codex";
+  const defaultModel = codexRunner?.config?.model ?? "";
+  const defaultSandbox = codexRunner?.config?.sandbox ?? "workspace-write";
+  const defaultApprovalPolicy = codexRunner?.config?.approvalPolicy ?? "never";
+  const [command, setCommand] = useState(defaultCommand);
+  const [model, setModel] = useState(defaultModel);
+  const [sandbox, setSandbox] = useState(defaultSandbox);
+  const [approvalPolicy, setApprovalPolicy] = useState(defaultApprovalPolicy);
+  const [prompt, setPrompt] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string>();
+  const [lastResult, setLastResult] = useState<CodexRunResult>();
+  const latestRun = codexRunner?.latestRun;
+  const latestLogPath = typeof latestRun?.metadata.logPath === "string" ? latestRun.metadata.logPath : undefined;
+  const canRun = Boolean(
+    window.workflowHub?.issues?.startCodexRun
+    && issueState?.workspace.found
+    && prompt.trim().length > 0
+    && command.trim().length > 0
+    && sandbox.trim().length > 0
+    && approvalPolicy.trim().length > 0
+    && !isRunning
+  );
+
+  useEffect(() => {
+    setCommand(defaultCommand);
+    setModel(defaultModel);
+    setSandbox(defaultSandbox);
+    setApprovalPolicy(defaultApprovalPolicy);
+    setPrompt("");
+    setRunError(undefined);
+    setLastResult(undefined);
+  }, [defaultApprovalPolicy, defaultCommand, defaultModel, defaultSandbox, issueId]);
+
+  const handleStartCodexRun = async () => {
+    if (!window.workflowHub?.issues?.startCodexRun) return;
+
+    setIsRunning(true);
+    setRunError(undefined);
+    try {
+      const result = await window.workflowHub.issues.startCodexRun({
+        issueId,
+        prompt,
+        command,
+        model: model.trim() || undefined,
+        sandbox,
+        approvalPolicy
+      });
+      setLastResult(result);
+      setPrompt("");
+      await onFinished();
+    } catch (error: unknown) {
+      setRunError(error instanceof Error ? error.message : String(error));
+      await onFinished();
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <section className="codex-run-panel" aria-label="Codex runner">
+      <div className="section-heading">
+        <p className="eyebrow">Codex CLI</p>
+        <h2>Local Run</h2>
+      </div>
+
+      <div className="cursor-run-grid codex-run-grid">
+        <label>
+          <span>Command</span>
+          <input
+            onChange={(event) => setCommand(event.target.value)}
+            value={command}
+          />
+        </label>
+        <label>
+          <span>Model</span>
+          <input
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="Default"
+            value={model}
+          />
+        </label>
+        <label>
+          <span>Sandbox</span>
+          <select
+            onChange={(event) => setSandbox(event.target.value)}
+            value={sandbox}
+          >
+            <option value="workspace-write">workspace-write</option>
+            <option value="read-only">read-only</option>
+          </select>
+        </label>
+        <label>
+          <span>Approvals</span>
+          <select
+            onChange={(event) => setApprovalPolicy(event.target.value)}
+            value={approvalPolicy}
+          >
+            <option value="never">never</option>
+            <option value="on-request">on-request</option>
+            <option value="untrusted">untrusted</option>
+            <option value="on-failure">on-failure</option>
+          </select>
+        </label>
+        <label className="cursor-prompt codex-prompt">
+          <span>Prompt</span>
+          <textarea
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Prompt for Codex"
+            rows={5}
+            value={prompt}
+          />
+        </label>
+      </div>
+
+      <dl className="cursor-run-meta codex-run-meta">
+        <div>
+          <dt>Worktree</dt>
+          <dd>{issueState?.workspace.path ?? "Not resolved"}</dd>
+        </div>
+        <div>
+          <dt>Boundary</dt>
+          <dd>{sandbox} / {approvalPolicy}</dd>
+        </div>
+        <div>
+          <dt>Latest</dt>
+          <dd>{latestRun ? `${labelForStatus(latestRun.status)} | ${latestRun.summary ?? latestRun.id}` : "No local run"}</dd>
+        </div>
+        <div>
+          <dt>Log</dt>
+          <dd>{latestLogPath ?? lastResult?.logPath ?? "Pending"}</dd>
+        </div>
+      </dl>
+
+      {runError ? <p className="write-error">{runError}</p> : null}
+      {lastResult ? (
+        <p className="prompt-save-note">
+          {lastResult.runId ?? "Codex run"} {labelForStatus(lastResult.status)}
+        </p>
+      ) : null}
+
+      <button
+        className="action-button primary"
+        disabled={!canRun}
+        onClick={handleStartCodexRun}
+        type="button"
+      >
+        <Terminal size={15} />
+        {isRunning ? "Running..." : "Run"}
+      </button>
     </section>
   );
 }
@@ -1426,6 +1613,12 @@ export function App() {
             issueState={selectedIssueState}
             onSaved={refreshIssueState}
             pullRequestState={pullRequestState}
+          />
+
+          <CodexRunPanel
+            issueId={selected.id}
+            issueState={selectedIssueState}
+            onFinished={refreshIssueState}
           />
 
           <CursorRunPanel

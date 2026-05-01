@@ -35,6 +35,11 @@ import {
   cursorConfigForProject,
   startCursorLocalRun as defaultStartCursorLocalRun
 } from "./cursor-runner.mjs";
+import {
+  CODEX_RUNNER_KIND,
+  codexConfigForProject,
+  startCodexLocalRun as defaultStartCodexLocalRun
+} from "./codex-runner.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -69,7 +74,9 @@ export function createLocalApiService(options = {}) {
   const readGitHubPullRequestState = options.readGitHubPullRequestState ?? defaultReadGitHubPullRequestState;
   const readGraphiteStackState = options.readGraphiteStackState ?? defaultReadGraphiteStackState;
   const startCursorLocalRun = options.startCursorLocalRun ?? defaultStartCursorLocalRun;
+  const startCodexLocalRun = options.startCodexLocalRun ?? defaultStartCodexLocalRun;
   const cursorSdkLoader = options.cursorSdkLoader;
+  const codexProcessRunner = options.codexProcessRunner;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -402,6 +409,48 @@ export function createLocalApiService(options = {}) {
         cursorSdkLoader,
         clock
       });
+    },
+
+    async startCodexRun(input) {
+      const issueId = normalizeIssueId(input?.issueId);
+      const prompt = sanitizeRequiredPrompt(input?.prompt);
+      const command = sanitizeOptionalString(input?.command, "command");
+      const model = sanitizeOptionalString(input?.model, "model");
+      const profile = sanitizeOptionalString(input?.profile, "profile");
+      const sandbox = sanitizeOptionalString(input?.sandbox, "sandbox");
+      const approvalPolicy = sanitizeOptionalString(input?.approvalPolicy, "approvalPolicy");
+      const dryRun = input?.dryRun === true;
+      const registry = readProjectConfig();
+      const project = selectProjectForIssue(issueId, registry.projects);
+
+      if (!project) {
+        throw new LocalApiValidationError("No configured project could be matched to this issue.");
+      }
+
+      const workspaceMatch = findWorkspace(issueId, registry);
+      if (!workspaceMatch) {
+        throw new LocalApiValidationError(`No issue workspace was found for ${issueId}.`);
+      }
+
+      const state = await this.getIssueState(issueId);
+      const repository = getRegistryRepository();
+
+      return startCodexLocalRun({
+        issueId,
+        prompt,
+        command,
+        model,
+        profile,
+        sandbox,
+        approvalPolicy,
+        dryRun,
+        project,
+        state,
+        workspace: state.workspace,
+        repository,
+        codexProcessRunner,
+        clock
+      });
     }
   };
 }
@@ -644,20 +693,56 @@ function buildRunnerStates({ symphonyState, issue, project, workspace }) {
         "AGE-356"
       )
     },
-    {
-      kind: "Codex",
-      role: "Local worker",
-      status: "unavailable",
-      detail: "Codex start/status/log controls stay behind a future explicit runner adapter.",
-      adapter: unavailableAdapter(
-        "runner:codex",
-        "Codex runner",
-        "Codex runner adapter unavailable until AGE-363 owns command, cwd, logs, and stop controls.",
-        "AGE-363"
-      )
-    },
+    buildCodexRunnerState({ issue, project, workspace }),
     buildCursorRunnerState({ issue, project, workspace })
   ];
+}
+
+function buildCodexRunnerState({ issue, project, workspace }) {
+  const latestRun = latestRunForKind(issue?.runs, CODEX_RUNNER_KIND);
+
+  if (workspace?.status !== "available" || !workspace.path) {
+    return {
+      kind: "Codex",
+      role: "Local CLI runner",
+      status: "not-found",
+      detail: latestRun
+        ? `Latest Codex run ${latestRun.status}, but the issue worktree is not currently resolved.`
+        : "Codex local runs need a resolved issue worktree.",
+      latestRun,
+      adapter: notFoundAdapter(
+        "runner:codex",
+        "Codex runner",
+        "Codex local runs need a resolved issue worktree."
+      )
+    };
+  }
+
+  const resolvedConfig = codexConfigForProject(project, workspace.path);
+  const latestDetail = latestRun
+    ? `Latest run ${latestRun.status}${latestRun.summary ? `: ${latestRun.summary}` : ""}`
+    : `Ready for local runs in ${workspace.path}.`;
+
+  return {
+    kind: "Codex",
+    role: "Local CLI runner",
+    status: "available",
+    detail: `${latestDetail} Command ${resolvedConfig.command}; sandbox ${resolvedConfig.sandbox}; approvals ${resolvedConfig.approvalPolicy}.`,
+    config: {
+      command: resolvedConfig.command,
+      model: resolvedConfig.model,
+      profile: resolvedConfig.profile,
+      sandbox: resolvedConfig.sandbox,
+      approvalPolicy: resolvedConfig.approvalPolicy,
+      logRoot: resolvedConfig.logRoot
+    },
+    latestRun,
+    adapter: availableAdapter(
+      "runner:codex",
+      "Codex runner",
+      `Codex local runner is available for ${workspace.path}.`
+    )
+  };
 }
 
 function buildCursorRunnerState({ issue, project, workspace }) {

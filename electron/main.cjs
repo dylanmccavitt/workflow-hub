@@ -27,7 +27,7 @@ function startupIssueQuery() {
   return `?issue=${encodeURIComponent(issueId.toUpperCase())}`;
 }
 
-function runWorkflowJsonCommand(args) {
+function runWorkflowJsonCommand(args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(nodeExecutable(), [workflowCliPath, ...args, "--json"], {
       cwd: repoRoot,
@@ -36,10 +36,11 @@ function runWorkflowJsonCommand(args) {
     });
     let stdout = "";
     let stderr = "";
+    const timeoutMs = options.timeoutMs ?? 15000;
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error("Workflow Hub local API command timed out."));
-    }, 15000);
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString("utf8");
@@ -147,6 +148,29 @@ async function saveFixPrompt(_event, input) {
 }
 
 ipcMain.handle("workflow-hub:save-fix-prompt", saveFixPrompt);
+
+async function startCodexRun(_event, input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Codex run input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+  if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
+    throw new Error("prompt must be a non-empty string.");
+  }
+
+  return runWorkflowJsonCommand([
+    "codex-run",
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ], {
+    timeoutMs: 15 * 60 * 1000
+  });
+}
+
+ipcMain.handle("workflow-hub:start-codex-run", startCodexRun);
 
 async function startCursorRun(_event, input) {
   if (!input || typeof input !== "object") {

@@ -2283,6 +2283,213 @@ dd {
   opacity: 0.55;
 }
 
+.command-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: 72px 24px 24px;
+  background: rgba(4, 6, 5, 0.72);
+}
+
+.command-palette,
+.command-confirmation {
+  width: min(760px, calc(100vw - 64px));
+  border: 1px solid #3a463c;
+  border-radius: 8px;
+  background: #101512;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.command-palette {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(680px, calc(100vh - 120px));
+  overflow: hidden;
+}
+
+.command-search {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border-bottom: 1px solid #28342e;
+  color: #a6cf82;
+}
+
+.command-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #f5f0e6;
+  background: transparent;
+  font: inherit;
+}
+
+.command-search input::placeholder {
+  color: #7f897f;
+}
+
+.command-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #aeb4a9;
+  background: transparent;
+  cursor: pointer;
+}
+
+.command-close:hover {
+  border-color: #3a463c;
+  color: #f5f0e6;
+  background: #17201a;
+}
+
+.command-list {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.command-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #f5f0e6;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.command-row.active,
+.command-row:hover {
+  border-color: #3d5145;
+  background: #17201a;
+}
+
+.command-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.command-row-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #a6cf82;
+  background: #182119;
+}
+
+.command-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.command-row-copy strong,
+.command-row-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-row-copy strong {
+  font-size: 14px;
+}
+
+.command-row-copy span {
+  color: #aeb4a9;
+  font-size: 12px;
+}
+
+.command-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid #334139;
+  border-radius: 999px;
+  color: #aeb4a9;
+  background: #111a16;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.command-risk.linear-write,
+.command-risk.runner-dispatch,
+.command-risk.pr-write {
+  border-color: #5b482d;
+  color: #f2b66d;
+  background: #201a11;
+}
+
+.command-risk.destructive,
+.command-risk.upload {
+  border-color: #63352e;
+  color: #ff9f8f;
+  background: #251613;
+}
+
+.command-help {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 10px 14px;
+  border-top: 1px solid #28342e;
+  color: #8f988f;
+  font-size: 12px;
+}
+
+.command-help span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.command-help kbd {
+  margin-left: 0;
+}
+
+.command-confirmation {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.command-confirmation-target {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.command-confirmation-target > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #303a35;
+  border-radius: 8px;
+  background: #141a16;
+}
+
+.command-confirmation-target dd {
+  overflow-wrap: anywhere;
+}
+
 .command-bar {
   grid-row: 2;
   display: grid;
@@ -2305,6 +2512,8 @@ dd {
   border-radius: 8px;
   color: #aeb4a9;
   background: #111715;
+  cursor: pointer;
+  text-align: left;
 }
 
 .command-prompt span {
@@ -2326,8 +2535,17 @@ dd {
   place-items: center;
   min-width: 0;
   border: 1px solid #303a35;
+  border-radius: 8px;
   color: #dfe2d8;
   background: #111715;
+  cursor: pointer;
+}
+
+.command-prompt:hover,
+.command-tool:hover {
+  border-color: #4a5a4d;
+  color: #f5f0e6;
+  background: #17201a;
 }
 
 .status-dot {

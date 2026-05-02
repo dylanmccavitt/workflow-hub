@@ -6,6 +6,8 @@ Implemented on `feat/age-371-security-guardrails`.
 
 Workflow Hub now has a shared Node-side guardrail module for local permission and secret handling policy. The local API exposes policy, credential, and artifact-upload states to the renderer without returning secret values. Linear Workpad notes, Codex prompts, Cursor prompts, and dispatch prompts are scanned for secret-looking content before external transmission; sensitive-looking content requires explicit sensitive-data confirmation. Real Codex and Cursor local runs now require action-time confirmation, while dry-runs remain available without runner confirmation.
 
+Human review found and fixed one scanner gap: `Authorization: Bearer ...` headers are now treated as sensitive-looking content without returning the token value in findings.
+
 Project config now rejects direct secret-looking fields/values and keeps `apiKeyEnv` constrained to environment variable names. Artifact uploads remain blocked by default until a dedicated upload action calls the guardrail.
 
 The cockpit UI now shows security policy state, unavailable credentials, blocked artifact-upload state, and explicit confirmation controls for direct Codex/Cursor runs, Ready dispatch, and Workpad notes.
@@ -50,6 +52,7 @@ Open `AGE-371` and confirm the inspector Security panel shows policy `2026-05-01
 
 - `node --check electron/main.cjs && node --check electron/preload.cjs && node --check scripts/workflow-hub.mjs && node --check scripts/lib/security-guardrails.mjs && node --check scripts/lib/local-api-service.mjs`
 - `node --test scripts/lib/security-guardrails.test.mjs scripts/lib/project-config.test.mjs scripts/lib/local-api-service.test.mjs`
+- `node --test scripts/lib/security-guardrails.test.mjs scripts/lib/local-api-service.test.mjs scripts/lib/project-config.test.mjs` after the bearer-header review fix.
 - `npm run typecheck`
 - `npm run test`
 - `npm run build`

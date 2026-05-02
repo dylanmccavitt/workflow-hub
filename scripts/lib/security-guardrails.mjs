@@ -97,6 +97,11 @@ const SECRET_TEXT_PATTERNS = [
     pattern: /\bxox[baprs]-[a-zA-Z0-9-]{10,}\b/
   },
   {
+    kind: "authorization-bearer",
+    label: "Authorization bearer token",
+    pattern: /\bauthorization\s*[:=]\s*["']?bearer\s+[a-zA-Z0-9._~+/=-]{12,}\b/i
+  },
+  {
     kind: "credential-assignment",
     label: "credential assignment",
     pattern: /\b(?:api[_-]?key|token|secret|password|client[_-]?secret|authorization)\s*[:=]\s*["']?[a-zA-Z0-9_./+=-]{12,}/i

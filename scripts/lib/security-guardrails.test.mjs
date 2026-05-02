@@ -19,6 +19,14 @@ test("detects sensitive-looking text without returning the secret value", () => 
   assert.equal(JSON.stringify(findings).includes("FAKE_TOKEN"), false);
 });
 
+test("detects bearer authorization headers without returning the token", () => {
+  const findings = detectSensitiveText("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456");
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].kind, "authorization-bearer");
+  assert.equal(JSON.stringify(findings).includes("abcdefghijklmnopqrstuvwxyz"), false);
+});
+
 test("allows environment variable references but rejects direct config secrets", () => {
   assert.doesNotThrow(() => assertNoConfigSecrets({
     runners: {

@@ -2,7 +2,7 @@
 
 Workflow Hub reads the tracked example registry from `config/projects.example.json` and then applies optional local overrides from ignored `config/projects.json`.
 
-`config/projects.json` is for machine-specific paths and local preferences only. Do not put secrets, tokens, Firebase plist contents, Linear state, PR state, or workflow scratchpad data in it.
+`config/projects.json` is for machine-specific paths and local preferences only. Do not put direct secret values, tokens, Firebase plist contents, Linear state, PR state, or workflow scratchpad data in it. Store secret values in ignored environment files, the launching shell, or OS/CLI credential storage; project config may name environment variables such as `CURSOR_API_KEY`.
 
 ## Schema
 

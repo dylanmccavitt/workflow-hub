@@ -2,6 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  assertNoConfigSecrets,
+  SecurityGuardrailError
+} from "./security-guardrails.mjs";
 
 export const repoRoot = path.resolve(new URL("../..", import.meta.url).pathname);
 export const trackedConfigPath = path.join(repoRoot, "config", "projects.example.json");
@@ -18,6 +22,7 @@ const DEFAULT_CODEX_SANDBOX = "workspace-write";
 const DEFAULT_CODEX_APPROVAL_POLICY = "never";
 const CODEX_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 const ISSUE_ID_PATTERN = /[a-z]+-\d+/i;
+const ENV_VAR_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
 export class ProjectConfigValidationError extends Error {
   constructor(errors) {
@@ -135,6 +140,17 @@ function validateLocalOverrideShape(localConfig) {
 
   if (errors.length > 0) {
     throw new ProjectConfigValidationError(errors);
+  }
+
+  try {
+    assertNoConfigSecrets(localConfig, "local project override config");
+  } catch (error) {
+    if (error instanceof SecurityGuardrailError && Array.isArray(error.details?.findings)) {
+      throw new ProjectConfigValidationError(
+        error.details.findings.map((finding) => `${finding.path} ${finding.label}`)
+      );
+    }
+    throw error;
   }
 }
 
@@ -299,6 +315,9 @@ function validateProject(project, index, seenIds) {
           validateOptionalString(errors, cursor.model, `${prefix}.runners.cursor.model`);
           validateOptionalString(errors, cursor.configPath, `${prefix}.runners.cursor.configPath`);
           validateOptionalString(errors, cursor.apiKeyEnv, `${prefix}.runners.cursor.apiKeyEnv`);
+          if (cursor.apiKeyEnv !== undefined && !ENV_VAR_NAME_PATTERN.test(cursor.apiKeyEnv)) {
+            errors.push(`${prefix}.runners.cursor.apiKeyEnv must be an environment variable name`);
+          }
         }
       }
       const codex = project.runners.codex;
@@ -347,6 +366,17 @@ export function validateProjectConfig(config) {
 
   if (errors.length > 0) {
     throw new ProjectConfigValidationError(errors);
+  }
+
+  try {
+    assertNoConfigSecrets(config, "project config");
+  } catch (error) {
+    if (error instanceof SecurityGuardrailError && Array.isArray(error.details?.findings)) {
+      throw new ProjectConfigValidationError(
+        error.details.findings.map((finding) => `${finding.path} ${finding.label}`)
+      );
+    }
+    throw error;
   }
 
   return config;

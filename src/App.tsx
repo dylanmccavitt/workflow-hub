@@ -71,6 +71,8 @@ import type {
   RunnerApiState,
   RunnerNormalizedState,
   RunnerTimelineEntry,
+  SecurityCredentialState,
+  SecurityGuardrailState,
   WorkflowEvent,
   WorkflowIssueListState,
   WorkflowIssueState
@@ -362,6 +364,23 @@ function toneForCache(cache: LinearCacheState | undefined): Tone {
   if (cache.status === "error") return "danger";
   if (cache.stale || cache.status === "not-configured" || cache.status === "miss") return "warning";
   return "success";
+}
+
+function toneForCredential(credential: SecurityCredentialState): Tone {
+  if (credential.status === "available") return "success";
+  if (credential.status === "unavailable") return "danger";
+  if (credential.status === "not-checked") return "warning";
+  return "neutral";
+}
+
+function securityCredentialSignal(credential: SecurityCredentialState): SystemSignal {
+  const envSuffix = credential.envName ? ` | ${credential.envName}` : "";
+  return {
+    label: credential.label,
+    value: labelForStatus(credential.status),
+    detail: `${credential.detail}${envSuffix}`,
+    tone: toneForCredential(credential)
+  };
 }
 
 function formatTimestamp(value: string) {
@@ -711,10 +730,12 @@ function ConfirmationBoundary({
   currentStatus,
   note,
   riskAccepted,
+  sensitiveDataAccepted,
   writeError,
   isWriting,
   onNoteChange,
   onRiskAcceptedChange,
+  onSensitiveDataAcceptedChange,
   onCancel,
   onApply
 }: {
@@ -723,10 +744,12 @@ function ConfirmationBoundary({
   currentStatus: string;
   note: string;
   riskAccepted: boolean;
+  sensitiveDataAccepted: boolean;
   writeError: string | undefined;
   isWriting: boolean;
   onNoteChange: (value: string) => void;
   onRiskAcceptedChange: (value: boolean) => void;
+  onSensitiveDataAcceptedChange: (value: boolean) => void;
   onCancel: () => void;
   onApply: () => void;
 }) {
@@ -767,6 +790,14 @@ function ConfirmationBoundary({
           <span>Confirm this explicit Linear state change.</span>
         </label>
       ) : null}
+      <label className="risk-check">
+        <input
+          checked={sensitiveDataAccepted}
+          onChange={(event) => onSensitiveDataAcceptedChange(event.target.checked)}
+          type="checkbox"
+        />
+        <span>Allow sensitive content in the Workpad note if this note intentionally includes it.</span>
+      </label>
       {writeError ? <p className="write-error">{writeError}</p> : null}
       <div className="confirmation-actions">
         <button className="secondary-button" disabled={isWriting} onClick={onCancel} type="button">
@@ -1007,6 +1038,8 @@ function CodexRunPanel({
   const [sandbox, setSandbox] = useState(defaultSandbox);
   const [approvalPolicy, setApprovalPolicy] = useState(defaultApprovalPolicy);
   const [prompt, setPrompt] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [sensitiveDataConfirmed, setSensitiveDataConfirmed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string>();
   const [lastResult, setLastResult] = useState<CodexRunResult>();
@@ -1019,6 +1052,7 @@ function CodexRunPanel({
     && command.trim().length > 0
     && sandbox.trim().length > 0
     && approvalPolicy.trim().length > 0
+    && confirmed
     && !isRunning
   );
 
@@ -1028,6 +1062,8 @@ function CodexRunPanel({
     setSandbox(defaultSandbox);
     setApprovalPolicy(defaultApprovalPolicy);
     setPrompt("");
+    setConfirmed(false);
+    setSensitiveDataConfirmed(false);
     setRunError(undefined);
     setLastResult(undefined);
   }, [defaultApprovalPolicy, defaultCommand, defaultModel, defaultSandbox, issueId]);
@@ -1044,10 +1080,14 @@ function CodexRunPanel({
         command,
         model: model.trim() || undefined,
         sandbox,
-        approvalPolicy
+        approvalPolicy,
+        confirmed,
+        sensitiveDataConfirmed
       });
       setLastResult(result);
       setPrompt("");
+      setConfirmed(false);
+      setSensitiveDataConfirmed(false);
       await onFinished();
     } catch (error: unknown) {
       setRunError(error instanceof Error ? error.message : String(error));
@@ -1132,6 +1172,31 @@ function CodexRunPanel({
         </div>
       </dl>
 
+      <StateNotice
+        compact
+        detail="Codex receives the prompt. Workspace-write can mutate only the resolved issue worktree."
+        title="Confirmation Required"
+        tone="warning"
+      />
+      <div className="runner-confirmations">
+        <label className="risk-check">
+          <input
+            checked={confirmed}
+            onChange={(event) => setConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Confirm this Codex runner start and prompt transmission.</span>
+        </label>
+        <label className="risk-check">
+          <input
+            checked={sensitiveDataConfirmed}
+            onChange={(event) => setSensitiveDataConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Allow sensitive prompt content if this run intentionally includes it.</span>
+        </label>
+      </div>
+
       {runError ? <p className="write-error">{runError}</p> : null}
       {lastResult ? (
         <p className="prompt-save-note">
@@ -1165,6 +1230,8 @@ function CursorRunPanel({
   const defaultModel = cursorRunner?.config?.model ?? "composer-2";
   const [model, setModel] = useState(defaultModel);
   const [prompt, setPrompt] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [sensitiveDataConfirmed, setSensitiveDataConfirmed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string>();
   const [lastResult, setLastResult] = useState<CursorRunResult>();
@@ -1174,12 +1241,15 @@ function CursorRunPanel({
     && issueState?.workspace.found
     && prompt.trim().length > 0
     && model.trim().length > 0
+    && confirmed
     && !isRunning
   );
 
   useEffect(() => {
     setModel(defaultModel);
     setPrompt("");
+    setConfirmed(false);
+    setSensitiveDataConfirmed(false);
     setRunError(undefined);
     setLastResult(undefined);
   }, [defaultModel, issueId]);
@@ -1193,10 +1263,14 @@ function CursorRunPanel({
       const result = await window.workflowHub.issues.startCursorRun({
         issueId,
         prompt,
-        model
+        model,
+        confirmed,
+        sensitiveDataConfirmed
       });
       setLastResult(result);
       setPrompt("");
+      setConfirmed(false);
+      setSensitiveDataConfirmed(false);
       await onFinished();
     } catch (error: unknown) {
       setRunError(error instanceof Error ? error.message : String(error));
@@ -1247,6 +1321,31 @@ function CursorRunPanel({
         </div>
       </dl>
 
+      <StateNotice
+        compact
+        detail="Cursor receives the prompt and runs against the selected issue worktree."
+        title="Confirmation Required"
+        tone="warning"
+      />
+      <div className="runner-confirmations">
+        <label className="risk-check">
+          <input
+            checked={confirmed}
+            onChange={(event) => setConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Confirm this Cursor runner start and prompt transmission.</span>
+        </label>
+        <label className="risk-check">
+          <input
+            checked={sensitiveDataConfirmed}
+            onChange={(event) => setSensitiveDataConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Allow sensitive prompt content if this run intentionally includes it.</span>
+        </label>
+      </div>
+
       {runError ? <p className="write-error">{runError}</p> : null}
       {lastResult ? (
         <p className="prompt-save-note">
@@ -1281,6 +1380,7 @@ function ReadyDispatchPanel({
   const [runnerKind, setRunnerKind] = useState<DispatchRunnerKind>(defaultRunnerKind);
   const [prompt, setPrompt] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [sensitiveDataConfirmed, setSensitiveDataConfirmed] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState<string>();
@@ -1299,6 +1399,7 @@ function ReadyDispatchPanel({
     setRunnerKind(defaultRunnerKind);
     setPrompt("");
     setConfirmed(false);
+    setSensitiveDataConfirmed(false);
     setDryRun(false);
     setDispatchError(undefined);
     setLastResult(undefined);
@@ -1315,11 +1416,13 @@ function ReadyDispatchPanel({
         runnerKind,
         prompt: prompt.trim() || undefined,
         confirmed,
+        sensitiveDataConfirmed,
         dryRun
       });
       setLastResult(result);
       setPrompt("");
       setConfirmed(false);
+      setSensitiveDataConfirmed(false);
       await onFinished();
     } catch (error: unknown) {
       setDispatchError(error instanceof Error ? error.message : String(error));
@@ -1393,6 +1496,14 @@ function ReadyDispatchPanel({
             type="checkbox"
           />
           <span>Dry-run the runner start.</span>
+        </label>
+        <label className="risk-check dispatch-check">
+          <input
+            checked={sensitiveDataConfirmed}
+            onChange={(event) => setSensitiveDataConfirmed(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Allow sensitive Workpad or prompt context if intentionally included.</span>
         </label>
       </div>
 
@@ -2129,6 +2240,69 @@ function ReviewActionDock({
   );
 }
 
+function SecurityGuardrailPanel({
+  security
+}: {
+  security: SecurityGuardrailState | undefined;
+}) {
+  if (!security) {
+    return (
+      <section className="inspector-section security-section">
+        <h2>Security</h2>
+        <StateNotice
+          compact
+          detail="The selected issue state has not returned local permission policy yet."
+          title="Guardrails pending"
+          tone="warning"
+        />
+      </section>
+    );
+  }
+
+  const riskyPolicies = security.actionPolicies.filter((policy) => (
+    policy.confirmationRequired === true || policy.confirmationRequired === "action-dependent"
+  ));
+
+  return (
+    <section className="inspector-section security-section">
+      <h2>Security</h2>
+      <StateNotice
+        compact
+        detail={security.detail}
+        title={`Policy ${security.version}`}
+        tone="success"
+      />
+      <div className="security-subsection">
+        <h3>Credentials</h3>
+        <div className="signal-list">
+          {security.credentials.map((credential) => (
+            <SystemSignalRow key={credential.id} signal={securityCredentialSignal(credential)} />
+          ))}
+        </div>
+      </div>
+      <div className="security-subsection">
+        <h3>Risky Actions</h3>
+        <div className="security-policy-list">
+          {riskyPolicies.map((policy) => (
+            <div className="security-policy-row" key={policy.id}>
+              <span>{policy.label}</span>
+              <strong>{policy.confirmationRequired === "action-dependent" ? "Per action" : "Confirm"}</strong>
+              <p>{policy.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="security-subsection">
+        <h3>Artifacts</h3>
+        <p className="security-detail">{security.artifactPolicy.detail}</p>
+        <strong className="security-upload-state">
+          {security.artifactPolicy.uploadsEnabled ? "Uploads available" : "Uploads blocked"}
+        </strong>
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState(initialSelectedIssueId);
   const [issueListState, setIssueListState] = useState<WorkflowIssueListState>();
@@ -2140,6 +2314,7 @@ export function App() {
   const [pendingActionId, setPendingActionId] = useState<string>();
   const [workpadNote, setWorkpadNote] = useState("");
   const [riskAccepted, setRiskAccepted] = useState(false);
+  const [sensitiveDataAccepted, setSensitiveDataAccepted] = useState(false);
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<IssueStatus>();
@@ -2334,6 +2509,7 @@ export function App() {
     setPendingActionId(action.id);
     setWorkpadNote("");
     setRiskAccepted(false);
+    setSensitiveDataAccepted(false);
     setWriteError(undefined);
   };
 
@@ -2347,11 +2523,13 @@ export function App() {
         issueId: selected.id,
         actionId: pendingAction.id,
         confirmed: true,
+        sensitiveDataConfirmed: sensitiveDataAccepted,
         note: workpadNote.trim() || undefined
       });
       setPendingActionId(undefined);
       setWorkpadNote("");
       setRiskAccepted(false);
+      setSensitiveDataAccepted(false);
       await refreshDashboard();
     } catch (error: unknown) {
       setWriteError(error instanceof Error ? error.message : String(error));
@@ -2581,11 +2759,14 @@ export function App() {
                     setPendingActionId(undefined);
                     setWorkpadNote("");
                     setRiskAccepted(false);
+                    setSensitiveDataAccepted(false);
                     setWriteError(undefined);
                   }}
                   onNoteChange={setWorkpadNote}
                   onRiskAcceptedChange={setRiskAccepted}
+                  onSensitiveDataAcceptedChange={setSensitiveDataAccepted}
                   riskAccepted={riskAccepted}
+                  sensitiveDataAccepted={sensitiveDataAccepted}
                   writeError={writeError}
                 />
               ) : null}
@@ -2681,6 +2862,8 @@ export function App() {
               <span>{reviewSummary}</span>
             </div>
           </section>
+
+          <SecurityGuardrailPanel security={selectedIssueState?.security} />
 
           <PullRequestPanel pullRequestState={pullRequestState} linearPullRequest={linearPullRequest} />
           <GraphiteStackPanel stackState={graphiteState} />

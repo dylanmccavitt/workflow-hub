@@ -47,6 +47,11 @@ import {
   codexConfigForProject,
   startCodexLocalRun as defaultStartCodexLocalRun
 } from "./codex-runner.mjs";
+import {
+  assertGuardedActionAllowed,
+  assertSensitiveTextAllowed,
+  buildSecurityGuardrailState
+} from "./security-guardrails.mjs";
 
 export const LOCAL_API_VERSION = "0.1.0";
 
@@ -84,6 +89,7 @@ export function createLocalApiService(options = {}) {
   const startCodexLocalRun = options.startCodexLocalRun ?? defaultStartCodexLocalRun;
   const cursorSdkLoader = options.cursorSdkLoader;
   const codexProcessRunner = options.codexProcessRunner;
+  const env = options.env ?? process.env;
   let registryRepository = options.registryRepository;
 
   function getRegistryRepository() {
@@ -263,7 +269,8 @@ export function createLocalApiService(options = {}) {
           projectConfigAdapter,
           workspaceAdapter,
           symphonyState,
-          pullRequestStates
+          pullRequestStates,
+          env
         });
       }
 
@@ -312,7 +319,8 @@ export function createLocalApiService(options = {}) {
           projectConfigAdapter,
           workspaceAdapter,
           symphonyState,
-          pullRequestStates
+          pullRequestStates,
+          env
         });
       }
 
@@ -349,7 +357,8 @@ export function createLocalApiService(options = {}) {
         projectConfigAdapter,
         workspaceAdapter: workspaceState.adapter,
         symphonyState,
-        pullRequestStates
+        pullRequestStates,
+        env
       });
     },
 
@@ -357,6 +366,7 @@ export function createLocalApiService(options = {}) {
       const issueId = normalizeIssueId(input?.issueId);
       const action = getLinearStatusAction(input?.actionId);
       const confirmed = input?.confirmed === true;
+      const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
       const note = sanitizeOptionalNote(input?.note);
       const registry = readProjectConfig();
       const project = selectProjectForIssue(issueId, registry.projects);
@@ -366,6 +376,12 @@ export function createLocalApiService(options = {}) {
       }
 
       const repository = getRegistryRepository();
+      assertSensitiveTextAllowed({
+        actionId: "linear-status",
+        destination: "Linear",
+        textFields: [{ name: "Workpad note", value: note }],
+        sensitiveDataConfirmed
+      });
 
       try {
         const result = await applyLinearStatusAction({
@@ -504,6 +520,8 @@ export function createLocalApiService(options = {}) {
       const prompt = sanitizeRequiredPrompt(input?.prompt);
       const model = sanitizeOptionalString(input?.model, "model");
       const dryRun = input?.dryRun === true;
+      const confirmed = input?.confirmed === true;
+      const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
       const registry = readProjectConfig();
       const project = selectProjectForIssue(issueId, registry.projects);
 
@@ -518,6 +536,13 @@ export function createLocalApiService(options = {}) {
 
       const state = await this.getIssueState(issueId);
       const repository = getRegistryRepository();
+      assertGuardedActionAllowed({
+        actionId: "runner-cursor",
+        confirmed,
+        dryRun,
+        sensitiveDataConfirmed,
+        textFields: [{ name: "prompt", value: prompt }]
+      });
 
       return startCursorLocalRun({
         issueId,
@@ -542,6 +567,8 @@ export function createLocalApiService(options = {}) {
       const sandbox = sanitizeOptionalString(input?.sandbox, "sandbox");
       const approvalPolicy = sanitizeOptionalString(input?.approvalPolicy, "approvalPolicy");
       const dryRun = input?.dryRun === true;
+      const confirmed = input?.confirmed === true;
+      const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
       const registry = readProjectConfig();
       const project = selectProjectForIssue(issueId, registry.projects);
 
@@ -556,6 +583,13 @@ export function createLocalApiService(options = {}) {
 
       const state = await this.getIssueState(issueId);
       const repository = getRegistryRepository();
+      assertGuardedActionAllowed({
+        actionId: "runner-codex",
+        confirmed,
+        dryRun,
+        sensitiveDataConfirmed,
+        textFields: [{ name: "prompt", value: prompt }]
+      });
 
       return startCodexLocalRun({
         issueId,
@@ -580,6 +614,7 @@ export function createLocalApiService(options = {}) {
       const runnerKind = normalizeDispatchRunner(input?.runnerKind);
       const userPrompt = sanitizeOptionalNote(input?.prompt);
       const confirmed = input?.confirmed === true;
+      const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
       const dryRun = input?.dryRun === true;
       const command = sanitizeOptionalString(input?.command, "command");
       const model = sanitizeOptionalString(input?.model, "model");
@@ -595,6 +630,15 @@ export function createLocalApiService(options = {}) {
 
       let state = await this.getIssueState(issueId);
       assertDispatchableLinearStatus(state);
+      assertGuardedActionAllowed({
+        actionId: "dispatch-ready",
+        confirmed,
+        sensitiveDataConfirmed,
+        textFields: [
+          { name: "dispatch note", value: userPrompt },
+          { name: "Codex Workpad", value: state.issue.linear?.codexWorkpad?.body }
+        ]
+      });
 
       const workspaceResult = ensureDispatchWorkspace({
         issueId,
@@ -645,6 +689,12 @@ export function createLocalApiService(options = {}) {
         workspace: state.workspace,
         userPrompt
       });
+      assertSensitiveTextAllowed({
+        actionId: "dispatch-ready",
+        destination: runnerKind === "codex" ? "Codex CLI" : "Cursor SDK",
+        textFields: [{ name: "dispatch prompt", value: dispatchPrompt }],
+        sensitiveDataConfirmed
+      });
 
       const runner = runnerKind === "codex"
         ? await this.startCodexRun({
@@ -655,12 +705,16 @@ export function createLocalApiService(options = {}) {
             profile,
             sandbox,
             approvalPolicy,
+            confirmed: true,
+            sensitiveDataConfirmed,
             dryRun
           })
         : await this.startCursorRun({
             issueId,
             prompt: dispatchPrompt,
             model,
+            confirmed: true,
+            sensitiveDataConfirmed,
             dryRun
           });
 
@@ -1074,12 +1128,14 @@ function buildIssueResponse({
   projectConfigAdapter,
   workspaceAdapter,
   symphonyState,
-  pullRequestStates
+  pullRequestStates,
+  env = process.env
 }) {
   const runnerStates = buildRunnerStates({ symphonyState, issue, project, workspace });
   const reviewStates = buildReviewStates(project);
   const normalizedPullRequestStates = buildPullRequestStates(pullRequestStates);
   const runTimeline = buildRunnerTimeline({ issue, symphonyState });
+  const security = buildSecurityGuardrailState({ project, env });
 
   return {
     apiVersion: LOCAL_API_VERSION,
@@ -1092,6 +1148,7 @@ function buildIssueResponse({
     runners: runnerStates,
     reviews: reviewStates,
     pullRequests: normalizedPullRequestStates,
+    security,
     adapters: [
       projectConfigAdapter,
       workspaceAdapter ?? workspace.adapter,

@@ -22,6 +22,10 @@
       "type": "string",
       "minLength": 1
     },
+    "envVarName": {
+      "type": "string",
+      "pattern": "^[A-Z_][A-Z0-9_]*$"
+    },
     "project": {
       "type": "object",
       "additionalProperties": false,
@@ -101,7 +105,7 @@
                   "default": ".cursor"
                 },
                 "apiKeyEnv": {
-                  "$ref": "#/$defs/nonEmptyString",
+                  "$ref": "#/$defs/envVarName",
                   "default": "CURSOR_API_KEY"
                 }
               }

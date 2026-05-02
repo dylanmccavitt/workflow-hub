@@ -748,6 +748,15 @@ h1 {
   justify-self: end;
 }
 
+.runner-confirmations {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #3a3d31;
+  border-radius: 8px;
+  background: #11120f;
+}
+
 .secondary-button {
   min-height: 36px;
   padding: 0 12px;
@@ -1387,6 +1396,68 @@ dd {
 
 .signal-row.danger strong {
   color: #ff9f8f;
+}
+
+.security-section {
+  display: grid;
+  gap: 14px;
+}
+
+.security-subsection {
+  display: grid;
+  gap: 10px;
+}
+
+.security-subsection h3 {
+  color: #f5f0e6;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.security-policy-list {
+  display: grid;
+  gap: 10px;
+}
+
+.security-policy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #24261f;
+}
+
+.security-policy-row:last-child {
+  border-bottom: 0;
+}
+
+.security-policy-row span,
+.security-upload-state {
+  min-width: 0;
+  color: #f5f0e6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.security-policy-row strong {
+  color: #f2b66d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.security-policy-row p,
+.security-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #aeb4a9;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.security-upload-state {
+  justify-self: start;
+  color: #f2b66d;
 }
 
 /* AGE-380 cockpit direction */

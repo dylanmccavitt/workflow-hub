@@ -126,6 +126,48 @@ export interface LinearStatusAction {
   confirmationReason?: string;
 }
 
+export type SecurityCredentialStatus = "available" | "unavailable" | "not-configured" | "not-checked";
+
+export interface SecurityActionPolicy {
+  id: string;
+  label: string;
+  risk: string;
+  destination: string;
+  confirmationRequired: boolean | "action-dependent";
+  sensitiveDataConfirmationRequired: boolean;
+  detail: string;
+}
+
+export interface SecurityCredentialState {
+  id: string;
+  label: string;
+  status: SecurityCredentialStatus;
+  storage: string;
+  envName?: string;
+  requiredFor: string[];
+  secretValueExposed: boolean;
+  detail: string;
+}
+
+export interface SecurityArtifactPolicy {
+  uploadsEnabled: boolean;
+  blockedByDefault: boolean;
+  confirmationRequired: boolean;
+  sensitiveDataConfirmationRequired: boolean;
+  restrictedArtifacts: Array<{ kind: string; label: string }>;
+  detail: string;
+}
+
+export interface SecurityGuardrailState {
+  version: string;
+  generatedAt: string;
+  status: EntityStatus;
+  detail: string;
+  actionPolicies: SecurityActionPolicy[];
+  credentials: SecurityCredentialState[];
+  artifactPolicy: SecurityArtifactPolicy;
+}
+
 export interface LinearIssueDetails {
   linearId: string;
   identifier: string;
@@ -458,6 +500,7 @@ export interface WorkflowIssueState {
   runners: RunnerApiState[];
   reviews: ReviewApiState[];
   pullRequests: PullRequestApiState[];
+  security: SecurityGuardrailState;
   adapters: AdapterState[];
 }
 
@@ -475,6 +518,7 @@ export interface LinearIssueActionInput {
   issueId: string;
   actionId: string;
   confirmed: boolean;
+  sensitiveDataConfirmed?: boolean;
   note?: string;
 }
 
@@ -526,6 +570,8 @@ export interface CursorRunInput {
   issueId: string;
   prompt: string;
   model?: string;
+  confirmed?: boolean;
+  sensitiveDataConfirmed?: boolean;
   dryRun?: boolean;
 }
 
@@ -545,6 +591,8 @@ export interface CodexRunInput {
   profile?: string;
   sandbox?: string;
   approvalPolicy?: string;
+  confirmed?: boolean;
+  sensitiveDataConfirmed?: boolean;
   dryRun?: boolean;
 }
 
@@ -597,6 +645,7 @@ export interface DispatchReadyInput {
   sandbox?: string;
   approvalPolicy?: string;
   confirmed: boolean;
+  sensitiveDataConfirmed?: boolean;
   dryRun?: boolean;
 }
 

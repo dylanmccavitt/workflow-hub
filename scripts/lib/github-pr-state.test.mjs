@@ -185,6 +185,31 @@ test("reads a pull request by workspace branch with checks, annotations, and lat
       };
     }
 
+    if (command.includes("pulls/12/files")) {
+      return {
+        ok: true,
+        stdout: JSON.stringify([
+          {
+            filename: "scripts/lib/github-pr-state.mjs",
+            status: "modified",
+            additions: 2,
+            deletions: 1,
+            changes: 3,
+            blob_url: "https://github.com/DylanMcCavitt/workflow-hub/blob/abc/scripts/lib/github-pr-state.mjs",
+            raw_url: "https://github.com/DylanMcCavitt/workflow-hub/raw/abc/scripts/lib/github-pr-state.mjs",
+            patch: [
+              "@@ -126,4 +126,5 @@ function readState() {",
+              " const previous = true;",
+              "-return previous;",
+              "+const next = true;",
+              "+return next;",
+              " }"
+            ].join("\n")
+          }
+        ])
+      };
+    }
+
     return {
       ok: false,
       error: `unexpected gh command: ${command}`
@@ -213,8 +238,155 @@ test("reads a pull request by workspace branch with checks, annotations, and lat
   assert.equal(state.pullRequest.checks.status, "failing");
   assert.equal(state.pullRequest.checks.checks[0].annotations[0].path, "src/App.tsx");
   assert.equal(state.pullRequest.reviewComments[0].kind, "inline");
+  assert.equal(state.pullRequest.diff?.status, "available");
+  assert.equal(state.pullRequest.diff.changedFileCount, 1);
+  assert.equal(state.pullRequest.diff.additions, 2);
+  assert.equal(state.pullRequest.diff.deletions, 1);
+  assert.equal(state.pullRequest.diff.files[0].path, "scripts/lib/github-pr-state.mjs");
+  assert.equal(state.pullRequest.diff.files[0].hunks[0].newStart, 126);
+  assert.equal(state.pullRequest.diff.files[0].hunks[0].lines[1].type, "deletion");
+  assert.equal(state.pullRequest.diff.files[0].hunks[0].lines[2].newLineNumber, 127);
   assert.match(state.detail, /checks failing/);
   assert.equal(calls.some((args) => args.includes("api") && args.join(" ").includes("pulls/12/comments")), true);
+  assert.equal(calls.some((args) => args.includes("api") && args.join(" ").includes("pulls/12/files")), true);
+});
+
+test("reports empty diff data when GitHub returns no changed files", () => {
+  const ghRunner = (args) => {
+    const command = args.join(" ");
+
+    if (command.includes("pr list")) {
+      return {
+        ok: true,
+        stdout: JSON.stringify([{ number: 12 }])
+      };
+    }
+
+    if (command.includes("pr view 12")) {
+      return {
+        ok: true,
+        stdout: JSON.stringify({
+          author: { login: "DylanMcCavitt" },
+          baseRefName: "main",
+          comments: [],
+          headRefName: "feat/age-385-native-pr-diff-viewer",
+          headRefOid: "abc123",
+          isDraft: false,
+          latestReviews: [],
+          mergeStateStatus: "CLEAN",
+          mergeable: "MERGEABLE",
+          number: 12,
+          reviewDecision: "UNKNOWN",
+          state: "OPEN",
+          statusCheckRollup: [],
+          title: "[AGE-385] Native PR and diff viewer",
+          url: "https://github.com/DylanMcCavitt/workflow-hub/pull/12"
+        })
+      };
+    }
+
+    if (command.includes("pulls/12/comments")) {
+      return { ok: true, stdout: JSON.stringify([]) };
+    }
+
+    if (command.includes("pulls/12/files")) {
+      return { ok: true, stdout: JSON.stringify([]) };
+    }
+
+    return {
+      ok: false,
+      error: `unexpected gh command: ${command}`
+    };
+  };
+
+  const state = readGitHubPullRequestState({
+    issue: {
+      linear: {
+        identifier: "AGE-385",
+        pullRequests: []
+      }
+    },
+    workspace: {
+      branch: "feat/age-385-native-pr-diff-viewer",
+      remote: "git@github.com:DylanMcCavitt/workflow-hub.git",
+      path: "/tmp/workflow-hub"
+    },
+    ghRunner
+  });
+
+  assert.equal(state.status, "available");
+  assert.equal(state.pullRequest.diff?.status, "empty");
+  assert.equal(state.pullRequest.diff.changedFileCount, 0);
+  assert.deepEqual(state.pullRequest.diff.files, []);
+});
+
+test("keeps the PR available when changed-file diff fetch fails", () => {
+  const ghRunner = (args) => {
+    const command = args.join(" ");
+
+    if (command.includes("pr list")) {
+      return {
+        ok: true,
+        stdout: JSON.stringify([{ number: 12 }])
+      };
+    }
+
+    if (command.includes("pr view 12")) {
+      return {
+        ok: true,
+        stdout: JSON.stringify({
+          author: { login: "DylanMcCavitt" },
+          baseRefName: "main",
+          comments: [],
+          headRefName: "feat/age-385-native-pr-diff-viewer",
+          headRefOid: "abc123",
+          isDraft: false,
+          latestReviews: [],
+          mergeStateStatus: "CLEAN",
+          mergeable: "MERGEABLE",
+          number: 12,
+          reviewDecision: "UNKNOWN",
+          state: "OPEN",
+          statusCheckRollup: [],
+          title: "[AGE-385] Native PR and diff viewer",
+          url: "https://github.com/DylanMcCavitt/workflow-hub/pull/12"
+        })
+      };
+    }
+
+    if (command.includes("pulls/12/comments")) {
+      return { ok: true, stdout: JSON.stringify([]) };
+    }
+
+    if (command.includes("pulls/12/files")) {
+      return { ok: false, error: "GitHub API rate limit exceeded." };
+    }
+
+    return {
+      ok: false,
+      error: `unexpected gh command: ${command}`
+    };
+  };
+
+  const state = readGitHubPullRequestState({
+    issue: {
+      linear: {
+        identifier: "AGE-385",
+        pullRequests: []
+      }
+    },
+    workspace: {
+      branch: "feat/age-385-native-pr-diff-viewer",
+      remote: "git@github.com:DylanMcCavitt/workflow-hub.git",
+      path: "/tmp/workflow-hub"
+    },
+    ghRunner
+  });
+
+  assert.equal(state.status, "available");
+  assert.equal(state.pullRequest.diff?.status, "error");
+  assert.match(state.pullRequest.diff.detail, /rate limit/i);
+  assert.equal(state.pullRequest.diff.files.length, 0);
 });
 
 test("reports not-configured when no GitHub repository can be resolved", () => {

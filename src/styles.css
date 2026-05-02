@@ -1747,6 +1747,260 @@ dd {
   font-size: 12px;
 }
 
+.pr-diff-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.diff-panel-heading,
+.diff-source-links,
+.diff-file-toolbar,
+.diff-context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.diff-panel-heading h2 {
+  color: #f5f2e9;
+  font-size: 15px;
+}
+
+.diff-summary,
+.diff-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.diff-summary span {
+  color: #b7bdb2;
+  font-size: 12px;
+}
+
+.diff-source-links {
+  justify-content: flex-start;
+}
+
+.diff-source-links a,
+.diff-context-strip a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8eb9ff;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.diff-source-links a:hover,
+.diff-context-strip a:hover {
+  text-decoration: underline;
+}
+
+.diff-review-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  min-height: 300px;
+}
+
+.diff-file-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  max-height: 460px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.diff-file-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #26302d;
+  border-radius: 7px;
+  color: #dfe2d8;
+  text-align: left;
+  background: #0f1513;
+  cursor: pointer;
+}
+
+.diff-file-row:hover,
+.diff-file-row:focus-visible,
+.diff-file-row.active {
+  border-color: #435640;
+  background: #162016;
+}
+
+.diff-file-row:focus-visible {
+  outline: 2px solid #8eb9ff;
+  outline-offset: 2px;
+}
+
+.diff-file-row span,
+.diff-file-toolbar strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #f5f2e9;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file-row small,
+.diff-file-toolbar span,
+.diff-context-strip span {
+  color: #aeb4a9;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.diff-viewer {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid #26302d;
+  border-radius: 8px;
+  background: #0d1211;
+  overflow: hidden;
+}
+
+.diff-file-toolbar {
+  min-height: 44px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #26302d;
+  background: #101715;
+}
+
+.diff-file-toolbar > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.diff-file-metrics {
+  display: inline-flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.diff-file-metrics span:first-child {
+  color: #9ec27f;
+}
+
+.diff-file-metrics span:last-child {
+  color: #ff9f8f;
+}
+
+.diff-context-strip {
+  justify-content: flex-start;
+  min-height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid #26302d;
+  background: #0b100f;
+}
+
+.diff-context-strip span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #1a211d;
+}
+
+.diff-hunks {
+  display: grid;
+  min-width: 0;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.diff-hunk {
+  min-width: 0;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 46px 46px minmax(0, 1fr);
+  min-width: max-content;
+}
+
+.diff-hunk-header {
+  min-width: max-content;
+  padding: 7px 10px;
+  color: #8eb9ff;
+  background: #111d22;
+  border-top: 1px solid #26302d;
+  border-bottom: 1px solid #26302d;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+}
+
+.diff-line {
+  min-height: 22px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.diff-line-number {
+  padding: 0 8px;
+  color: #7f877b;
+  text-align: right;
+  user-select: none;
+  background: #0a0f0e;
+  border-right: 1px solid #1e2723;
+}
+
+.diff-line code {
+  display: block;
+  min-width: 0;
+  padding: 0 10px;
+  color: #dfe2d8;
+  white-space: pre;
+}
+
+.diff-line-marker {
+  display: inline-block;
+  width: 16px;
+  color: #8d9688;
+  user-select: none;
+}
+
+.diff-line.addition code,
+.diff-line.addition .diff-line-number {
+  background: #102018;
+}
+
+.diff-line.addition .diff-line-marker,
+.diff-line.addition code {
+  color: #a6cf82;
+}
+
+.diff-line.deletion code,
+.diff-line.deletion .diff-line-number {
+  background: #241513;
+}
+
+.diff-line.deletion .diff-line-marker,
+.diff-line.deletion code {
+  color: #ff9f8f;
+}
+
+.diff-line.metadata code {
+  color: #aeb4a9;
+}
+
 .cockpit-timeline {
   gap: 0;
   padding-left: 8px;
@@ -2066,6 +2320,14 @@ dd {
 
   .runner-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .diff-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-file-list {
+    max-height: 170px;
   }
 }
 

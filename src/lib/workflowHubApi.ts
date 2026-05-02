@@ -330,6 +330,47 @@ export interface GitHubPullRequestDetails {
   matchedBy?: string;
   checks: GitHubCheckSummary;
   reviewComments: GitHubReviewComment[];
+  diff: GitHubPullRequestDiffState;
+}
+
+export type GitHubPullRequestDiffStatus = "available" | "empty" | "stale" | "unavailable" | "error";
+
+export interface GitHubPullRequestDiffState {
+  status: GitHubPullRequestDiffStatus;
+  detail: string;
+  changedFileCount: number;
+  additions: number;
+  deletions: number;
+  files: GitHubPullRequestFileDiff[];
+}
+
+export interface GitHubPullRequestFileDiff {
+  path: string;
+  previousPath?: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  blobUrl?: string;
+  rawUrl?: string;
+  hunks: GitHubPullRequestDiffHunk[];
+}
+
+export interface GitHubPullRequestDiffHunk {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  section?: string;
+  lines: GitHubPullRequestDiffLine[];
+}
+
+export interface GitHubPullRequestDiffLine {
+  type: "context" | "addition" | "deletion" | "metadata";
+  content: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
 }
 
 export interface GitHubCheckSummary {

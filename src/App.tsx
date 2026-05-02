@@ -53,6 +53,9 @@ import type {
   DispatchReadyResult,
   DispatchRunnerKind,
   GitHubCheck,
+  GitHubCheckAnnotation,
+  GitHubPullRequestDiffLine,
+  GitHubPullRequestFileDiff,
   GitHubPullRequestApiState,
   GitHubPullRequestDetails,
   GitHubReviewComment,
@@ -1757,6 +1760,223 @@ function PullRequestPanel({
   );
 }
 
+function PullRequestDiffPanel({
+  pullRequestState,
+  graphiteState,
+  linearPullRequest,
+  isLoading,
+  apiError,
+  stale
+}: {
+  pullRequestState: GitHubPullRequestApiState | undefined;
+  graphiteState: GraphiteStackApiState | undefined;
+  linearPullRequest: LinearIssueDetails["pullRequests"][number] | undefined;
+  isLoading: boolean;
+  apiError: string | undefined;
+  stale: boolean;
+}) {
+  const pullRequest = pullRequestState?.pullRequest;
+  const diff = pullRequest?.diff;
+  const files = diff?.files ?? [];
+  const [selectedPath, setSelectedPath] = useState<string>();
+
+  useEffect(() => {
+    if (files.length === 0) {
+      setSelectedPath(undefined);
+      return;
+    }
+
+    if (!selectedPath || !files.some((file) => file.path === selectedPath)) {
+      setSelectedPath(files[0].path);
+    }
+  }, [files, selectedPath]);
+
+  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0];
+  const githubHref = pullRequest?.url ?? linearPullRequest?.url;
+  const graphiteHref = graphiteState?.stack?.deepLink ?? graphiteState?.deepLink;
+  let displayStatus: string = diff?.status ?? pullRequestState?.status ?? "unavailable";
+  if (diff?.status === "error" || apiError) displayStatus = "error";
+  if (isLoading) displayStatus = "loading";
+  const summary = diff
+    ? `${diff.changedFileCount} files, +${diff.additions} -${diff.deletions}`
+    : pullRequestState?.detail ?? "No GitHub PR diff loaded";
+
+  return (
+    <section className="pr-diff-panel" aria-label="Pull request changed files">
+      <div className="diff-panel-heading">
+        <div>
+          <p className="eyebrow">PR review</p>
+          <h2>Changed Files</h2>
+        </div>
+        <div className="diff-summary">
+          <StatusPill status={labelForStatus(displayStatus)} />
+          <span>{summary}</span>
+        </div>
+      </div>
+
+      <div className="diff-source-links">
+        {githubHref ? (
+          <a href={githubHref} rel="noreferrer" target="_blank">
+            <GitPullRequest size={15} />
+            GitHub PR
+          </a>
+        ) : null}
+        {graphiteHref ? (
+          <a href={graphiteHref} rel="noreferrer" target="_blank">
+            <GitBranch size={15} />
+            Graphite
+          </a>
+        ) : null}
+      </div>
+
+      {stale ? (
+        <StateNotice
+          compact
+          detail="Linear issue metadata is cached and may be old; GitHub diff status is shown separately."
+          title="Linear cache is stale"
+          tone="warning"
+        />
+      ) : null}
+
+      {isLoading ? (
+        <StateNotice title="Loading PR diff" detail="Reading the resolved GitHub PR through the local API." />
+      ) : apiError ? (
+        <StateNotice title="Diff error" detail={apiError} tone="danger" />
+      ) : !pullRequest ? (
+        <StateNotice
+          title="Diff unavailable"
+          detail={pullRequestState?.detail ?? "Resolve a GitHub PR for this issue before local diff review is available."}
+          tone={pullRequestState?.status === "not-found" ? "warning" : "danger"}
+        />
+      ) : !diff || diff.status === "unavailable" ? (
+        <StateNotice title="Diff unavailable" detail={diff?.detail ?? "No changed-file payload was returned for this PR."} tone="warning" />
+      ) : diff.status === "error" ? (
+        <StateNotice title="Diff error" detail={diff.detail} tone="danger" />
+      ) : diff.status === "empty" || files.length === 0 ? (
+        <StateNotice title="No changed files" detail={diff.detail} />
+      ) : selectedFile ? (
+        <PullRequestDiffViewer
+          file={selectedFile}
+          files={files}
+          onSelectFile={setSelectedPath}
+          pullRequest={pullRequest}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function PullRequestDiffViewer({
+  file,
+  files,
+  onSelectFile,
+  pullRequest
+}: {
+  file: GitHubPullRequestFileDiff;
+  files: GitHubPullRequestFileDiff[];
+  onSelectFile: (path: string) => void;
+  pullRequest: GitHubPullRequestDetails;
+}) {
+  const selectedComments = reviewCommentsForPath(pullRequest.reviewComments, file.path);
+  const selectedAnnotations = annotationsForPath(pullRequest.checks.checks, file.path);
+
+  return (
+    <div className="diff-review-grid">
+      <div className="diff-file-list" role="listbox" aria-label="Changed files">
+        {files.map((candidate) => {
+          const commentCount = reviewCommentsForPath(pullRequest.reviewComments, candidate.path).length;
+          const annotationCount = annotationsForPath(pullRequest.checks.checks, candidate.path).length;
+          return (
+            <button
+              className={`diff-file-row ${candidate.path === file.path ? "active" : ""}`}
+              key={candidate.path}
+              onClick={() => onSelectFile(candidate.path)}
+              type="button"
+            >
+              <span>{candidate.path}</span>
+              <small>
+                {labelForStatus(candidate.status)} · +{candidate.additions} -{candidate.deletions}
+                {commentCount + annotationCount > 0 ? ` · ${commentCount + annotationCount} notes` : ""}
+              </small>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="diff-viewer">
+        <div className="diff-file-toolbar">
+          <div>
+            <strong>{file.path}</strong>
+            {file.previousPath ? <span>{file.previousPath} {"->"} {file.path}</span> : null}
+          </div>
+          <div className="diff-file-metrics">
+            <span>+{file.additions}</span>
+            <span>-{file.deletions}</span>
+          </div>
+        </div>
+
+        <div className="diff-context-strip">
+          <span>{selectedComments.length} comments</span>
+          <span>{selectedAnnotations.length} check notes</span>
+          {file.blobUrl ? (
+            <a href={file.blobUrl} rel="noreferrer" target="_blank">
+              Source
+            </a>
+          ) : null}
+        </div>
+
+        {file.hunks.length > 0 ? (
+          <div className="diff-hunks">
+            {file.hunks.map((hunk) => (
+              <div className="diff-hunk" key={`${file.path}-${hunk.header}`}>
+                <div className="diff-hunk-header">{hunk.header}</div>
+                {hunk.lines.map((line, index) => (
+                  <DiffCodeLine key={`${hunk.header}-${index}`} line={line} />
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <StateNotice
+            compact
+            detail="GitHub did not return a unified patch for this file. Binary, generated, or oversized files can still appear in the changed-file list."
+            title="No unified patch"
+            tone="warning"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DiffCodeLine({ line }: { line: GitHubPullRequestDiffLine }) {
+  return (
+    <div className={`diff-line ${line.type}`}>
+      <span className="diff-line-number">{line.oldLineNumber ?? ""}</span>
+      <span className="diff-line-number">{line.newLineNumber ?? ""}</span>
+      <code>
+        <span className="diff-line-marker">{diffLineMarker(line)}</span>
+        {line.content || " "}
+      </code>
+    </div>
+  );
+}
+
+function diffLineMarker(line: GitHubPullRequestDiffLine) {
+  if (line.type === "addition") return "+";
+  if (line.type === "deletion") return "-";
+  if (line.type === "metadata") return "\\";
+  return " ";
+}
+
+function reviewCommentsForPath(comments: GitHubReviewComment[], filePath: string) {
+  return comments.filter((comment) => comment.path === filePath);
+}
+
+function annotationsForPath(checks: GitHubCheck[], filePath: string): GitHubCheckAnnotation[] {
+  return checks.flatMap((check) => check.annotations.filter((annotation) => annotation.path === filePath));
+}
+
 function GraphiteStackPanel({
   stackState
 }: {
@@ -2155,7 +2375,7 @@ export function App() {
   const updatedLabel = linearIssue?.updatedAt ? formatTimestamp(linearIssue.updatedAt) : selected.lastEvent;
   const timelineCount = visibleTimeline.length;
   const checkCount = primaryPullRequest?.checks.total ?? 0;
-  const reviewCommentCount = primaryPullRequest?.reviewComments.length ?? 0;
+  const diffFileCount = primaryPullRequest?.diff?.changedFileCount ?? 0;
   const commitLabel = selectedIssueState?.workspace.headSha ? shortSha(selectedIssueState.workspace.headSha) : "Unknown";
 
   return (
@@ -2308,10 +2528,19 @@ export function App() {
 
               <div className="issue-tabbar" aria-label="Issue views">
                 <button className="active" type="button">Timeline <span>{timelineCount}</span></button>
-                <button type="button">Files <span>{reviewCommentCount}</span></button>
+                <button type="button">Files <span>{diffFileCount}</span></button>
                 <button type="button">Checks <span>{checkCount}</span></button>
                 <button type="button">Commit <span>{commitLabel}</span></button>
               </div>
+
+              <PullRequestDiffPanel
+                apiError={apiError}
+                graphiteState={graphiteState}
+                isLoading={isIssueStateLoading}
+                linearPullRequest={linearPullRequest}
+                pullRequestState={pullRequestState}
+                stale={Boolean(selectedCache?.stale)}
+              />
 
               <section className="conversation cockpit-timeline" aria-label="Timeline">
                 {isIssueStateLoading ? (

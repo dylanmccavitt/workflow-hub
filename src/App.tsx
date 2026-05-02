@@ -1,5 +1,5 @@
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CheckCircle2,
   CircleDot,
+  CornerDownLeft,
   Copy,
   ExternalLink,
   FileText,
@@ -22,6 +23,7 @@ import {
   Play,
   RotateCw,
   Save,
+  Search,
   Send,
   ShieldAlert,
   SlidersHorizontal,
@@ -29,6 +31,9 @@ import {
   Smartphone,
   SquarePen,
   Terminal,
+  Trash2,
+  Upload,
+  X,
   Workflow
 } from "lucide-react";
 import {
@@ -105,6 +110,94 @@ const fallbackLinearActions: LinearStatusAction[] = [
   { id: "blocked", label: "Blocked", stateName: "Blocked", confirmationRequired: false }
 ];
 
+type WorkflowCommandGroup = "Open" | "Review" | "Dispatch" | "Status" | "PR" | "Guardrails";
+type WorkflowCommandRisk = "none" | "linear-write" | "runner-dispatch" | "pr-write" | "destructive" | "upload";
+
+type WorkflowCommand =
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "open-url";
+    url?: string;
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled?: boolean;
+    disabledReason?: string;
+  }
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "focus";
+    selector: string;
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled?: boolean;
+    disabledReason?: string;
+  }
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "copy";
+    value?: string;
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled?: boolean;
+    disabledReason?: string;
+  }
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "linear-action";
+    action: LinearStatusAction;
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled?: boolean;
+    disabledReason?: string;
+  }
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "dispatch";
+    runnerKind: DispatchRunnerKind;
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled?: boolean;
+    disabledReason?: string;
+  }
+  | {
+    id: string;
+    group: WorkflowCommandGroup;
+    label: string;
+    detail: string;
+    keywords: string[];
+    icon: React.ReactNode;
+    kind: "unavailable";
+    destination: string;
+    risk: WorkflowCommandRisk;
+    disabled: true;
+    disabledReason: string;
+  };
+
 function classNameFor(value: string) {
   return value.toLowerCase().replace(/[ /]+/g, "-");
 }
@@ -114,6 +207,52 @@ function labelForStatus(value: string) {
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function commandSearchText(command: WorkflowCommand) {
+  return [
+    command.group,
+    command.label,
+    command.detail,
+    command.destination,
+    command.risk,
+    ...command.keywords
+  ].join(" ").toLowerCase();
+}
+
+function commandRequiresConfirmation(command: WorkflowCommand) {
+  return command.kind === "linear-action" || command.kind === "dispatch";
+}
+
+function commandRiskLabel(command: WorkflowCommand) {
+  if (command.risk === "linear-write") return "Linear write";
+  if (command.risk === "runner-dispatch") return "Runner dispatch";
+  if (command.risk === "pr-write") return "PR write";
+  if (command.risk === "destructive") return "Destructive";
+  if (command.risk === "upload") return "Upload";
+  return "Local";
+}
+
+function commandConfirmationCopy(command: WorkflowCommand) {
+  if (command.kind === "linear-action") {
+    return command.action.confirmationReason
+      ?? `Workflow Hub will move this issue to ${command.action.stateName} and append a structured Workpad note.`;
+  }
+
+  if (command.kind === "dispatch") {
+    return "Workflow Hub will resolve the issue worktree, move dispatchable issues to In Progress when needed, and start the selected runner.";
+  }
+
+  return command.detail;
+}
+
+function commandTimelineEvent(label: string, detail: string, tone: Tone = "neutral"): TimelineEvent {
+  return {
+    id: `command-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    label,
+    detail: `${formatTimestamp(new Date().toISOString())} | ${detail}`,
+    tone
+  };
 }
 
 function toneForAdapter(adapter: AdapterState): Tone {
@@ -808,6 +947,285 @@ function ConfirmationBoundary({
         </button>
       </div>
     </section>
+  );
+}
+
+function CommandPalette({
+  open,
+  query,
+  commands,
+  activeCommandId,
+  onActiveCommandChange,
+  onClose,
+  onQueryChange,
+  onRun
+}: {
+  open: boolean;
+  query: string;
+  commands: WorkflowCommand[];
+  activeCommandId: string | undefined;
+  onActiveCommandChange: (id: string | undefined) => void;
+  onClose: () => void;
+  onQueryChange: (value: string) => void;
+  onRun: (command: WorkflowCommand) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const filteredCommands = useMemo(
+    () => {
+      const normalizedQuery = query.trim().toLowerCase();
+      if (!normalizedQuery) return commands;
+      return commands.filter((command) => commandSearchText(command).includes(normalizedQuery));
+    },
+    [commands, query]
+  );
+  const runnableCommands = filteredCommands.filter((command) => !command.disabled);
+  const activeCommand = filteredCommands.find((command) => command.id === activeCommandId)
+    ?? runnableCommands[0]
+    ?? filteredCommands[0];
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (activeCommand?.id !== activeCommandId) {
+      onActiveCommandChange(activeCommand?.id);
+    }
+  }, [activeCommand?.id, activeCommandId, onActiveCommandChange, open]);
+
+  if (!open) return null;
+
+  const moveSelection = (direction: 1 | -1) => {
+    if (runnableCommands.length === 0) return;
+    const activeIndex = Math.max(0, runnableCommands.findIndex((command) => command.id === activeCommand?.id));
+    const nextIndex = (activeIndex + direction + runnableCommands.length) % runnableCommands.length;
+    onActiveCommandChange(runnableCommands[nextIndex]?.id);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveSelection(1);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSelection(-1);
+      return;
+    }
+
+    if (event.key === "Enter" && activeCommand && !activeCommand.disabled) {
+      event.preventDefault();
+      onRun(activeCommand);
+    }
+  };
+
+  return (
+    <div
+      className="command-overlay"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        aria-label="Command palette"
+        aria-modal="true"
+        className="command-palette"
+        role="dialog"
+        onKeyDown={handleKeyDown}
+      >
+        <div className="command-search">
+          <Search size={18} />
+          <input
+            aria-label="Search commands"
+            autoComplete="off"
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Open, review, dispatch, move status, PR..."
+            ref={inputRef}
+            value={query}
+          />
+          <button className="command-close" onClick={onClose} title="Close command palette" type="button">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="command-list" role="listbox" aria-label="Workflow commands">
+          {filteredCommands.length > 0 ? (
+            filteredCommands.map((command) => {
+              const active = command.id === activeCommand?.id;
+              return (
+                <button
+                  aria-selected={active}
+                  className={`command-row ${active ? "active" : ""}`}
+                  disabled={command.disabled}
+                  key={command.id}
+                  onClick={() => onRun(command)}
+                  role="option"
+                  type="button"
+                >
+                  <span className="command-row-icon">{command.icon}</span>
+                  <span className="command-row-copy">
+                    <strong>{command.label}</strong>
+                    <span>{command.disabled ? command.disabledReason : command.detail}</span>
+                  </span>
+                  <span className={`command-risk ${classNameFor(command.risk)}`}>
+                    {commandRequiresConfirmation(command) ? <ShieldAlert size={13} /> : null}
+                    {commandRiskLabel(command)}
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <StateNotice
+              compact
+              detail="No command matches the current filter."
+              title="No commands"
+              tone="warning"
+            />
+          )}
+        </div>
+
+        <div className="command-help" aria-label="Keyboard help">
+          <span><kbd>Up</kbd><kbd>Down</kbd> Move</span>
+          <span><kbd>Enter</kbd> Run</span>
+          <span><kbd>Esc</kbd> Close</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CommandConfirmationDialog({
+  command,
+  issueId,
+  isRunning,
+  note,
+  confirmed,
+  sensitiveDataConfirmed,
+  dryRun,
+  error,
+  onNoteChange,
+  onConfirmedChange,
+  onSensitiveDataConfirmedChange,
+  onDryRunChange,
+  onCancel,
+  onApply
+}: {
+  command: WorkflowCommand;
+  issueId: string;
+  isRunning: boolean;
+  note: string;
+  confirmed: boolean;
+  sensitiveDataConfirmed: boolean;
+  dryRun: boolean;
+  error: string | undefined;
+  onNoteChange: (value: string) => void;
+  onConfirmedChange: (value: boolean) => void;
+  onSensitiveDataConfirmedChange: (value: boolean) => void;
+  onDryRunChange: (value: boolean) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const isDispatch = command.kind === "dispatch";
+  const noteLabel = isDispatch ? "Dispatch note" : "Workpad note";
+  const notePlaceholder = isDispatch
+    ? "Optional note included in the runner prompt"
+    : "Optional note appended under ### Notes";
+
+  return (
+    <div className="command-overlay">
+      <section
+        aria-label="Command confirmation"
+        aria-modal="true"
+        className="command-confirmation"
+        role="dialog"
+      >
+        <div className="confirmation-copy">
+          <p className="eyebrow">Confirm {commandRiskLabel(command)}</p>
+          <h3>
+            {issueId}: {command.label}
+          </h3>
+          <p>{commandConfirmationCopy(command)}</p>
+        </div>
+
+        <dl className="command-confirmation-target">
+          <div>
+            <dt>Destination</dt>
+            <dd>{command.destination}</dd>
+          </div>
+          <div>
+            <dt>Action</dt>
+            <dd>{command.detail}</dd>
+          </div>
+        </dl>
+
+        <label className="note-field">
+          <span>
+            <MessageSquareText size={15} />
+            {noteLabel}
+          </span>
+          <textarea
+            onChange={(event) => onNoteChange(event.target.value)}
+            placeholder={notePlaceholder}
+            rows={3}
+            value={note}
+          />
+        </label>
+
+        <label className="risk-check">
+          <input
+            checked={confirmed}
+            onChange={(event) => onConfirmedChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Confirm only this action and destination.</span>
+        </label>
+        {isDispatch ? (
+          <label className="risk-check">
+            <input
+              checked={dryRun}
+              onChange={(event) => onDryRunChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Dry-run this dispatch without starting a writable runner.</span>
+          </label>
+        ) : null}
+        <label className="risk-check">
+          <input
+            checked={sensitiveDataConfirmed}
+            onChange={(event) => onSensitiveDataConfirmedChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Allow sensitive content only if the note intentionally includes it.</span>
+        </label>
+
+        {error ? <p className="write-error">{error}</p> : null}
+
+        <div className="confirmation-actions">
+          <button className="secondary-button" disabled={isRunning} onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button
+            className="action-button primary"
+            disabled={isRunning || !confirmed}
+            onClick={onApply}
+            type="button"
+          >
+            <CornerDownLeft size={15} />
+            {isRunning ? "Running..." : "Apply"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2318,6 +2736,17 @@ export function App() {
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string>();
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<IssueStatus>();
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [activeCommandId, setActiveCommandId] = useState<string>();
+  const [pendingCommand, setPendingCommand] = useState<WorkflowCommand>();
+  const [commandNote, setCommandNote] = useState("");
+  const [commandConfirmed, setCommandConfirmed] = useState(false);
+  const [commandSensitiveDataConfirmed, setCommandSensitiveDataConfirmed] = useState(false);
+  const [commandDryRun, setCommandDryRun] = useState(false);
+  const [commandError, setCommandError] = useState<string>();
+  const [isCommandRunning, setIsCommandRunning] = useState(false);
+  const [commandTimelineResults, setCommandTimelineResults] = useState<TimelineEvent[]>([]);
   const selectedIssueState = issueState?.issue.issueId === selectedIssueId ? issueState : undefined;
   const apiIssueCards = useMemo(
     () => issueListState?.issues.map((issue) => issueCardFromLinearIssue(issue, issueListState.project.displayName)) ?? [],
@@ -2418,6 +2847,31 @@ export function App() {
   }, [selectedIssueId]);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen((current) => !current);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    setCommandPaletteOpen(false);
+    setCommandQuery("");
+    setActiveCommandId(undefined);
+    setPendingCommand(undefined);
+    setCommandNote("");
+    setCommandConfirmed(false);
+    setCommandSensitiveDataConfirmed(false);
+    setCommandDryRun(false);
+    setCommandError(undefined);
+    setCommandTimelineResults([]);
+  }, [selectedIssueId]);
+
+  useEffect(() => {
     if (selectedStatusFilter && !statusGroups.includes(selectedStatusFilter)) {
       setSelectedStatusFilter(undefined);
     }
@@ -2468,7 +2922,7 @@ export function App() {
     },
     [selectedIssueState]
   );
-  const visibleTimeline = localTimeline;
+  const visibleTimeline = [...commandTimelineResults, ...localTimeline];
   const selectedCache = selectedIssueState?.issue.linear?.cache ?? selectedIssueState?.issue.cache;
   const listCache = issueListState?.cache;
   const dashboardNotice = isIssueStateLoading || isIssueListLoading
@@ -2555,9 +3009,394 @@ export function App() {
   const checkCount = primaryPullRequest?.checks.total ?? 0;
   const diffFileCount = primaryPullRequest?.diff?.changedFileCount ?? 0;
   const commitLabel = selectedIssueState?.workspace.headSha ? shortSha(selectedIssueState.workspace.headSha) : "Unknown";
+  const graphiteHref = graphiteState?.stack?.deepLink ?? graphiteState?.deepLink;
+  const commandWorkspacePath = selectedIssueState?.workspace.found ? selectedIssueState.workspace.path : undefined;
+  const dispatchableFromCommand = ["Ready", "Todo", "In Progress"].includes(displayStatus);
+  const commandActions = useMemo<WorkflowCommand[]>(
+    () => {
+      const statusCommands: WorkflowCommand[] = linearActions.map((action) => ({
+        id: `status:${action.id}`,
+        group: "Status",
+        label: `Move to ${action.stateName}`,
+        detail: action.confirmationReason ?? `Update Linear status to ${action.stateName}.`,
+        keywords: ["status", "move", "linear", action.label, action.stateName],
+        icon: action.confirmationRequired ? <ShieldAlert size={17} /> : <ArrowRight size={17} />,
+        kind: "linear-action",
+        action,
+        destination: `Linear ${selected.id} -> ${action.stateName}`,
+        risk: "linear-write",
+        disabled: isWriting || !window.workflowHub?.issues?.applyAction,
+        disabledReason: window.workflowHub?.issues?.applyAction
+          ? "Another Linear write is in progress."
+          : "Desktop Linear write API unavailable."
+      }));
+
+      return [
+        {
+          id: "open:linear",
+          group: "Open",
+          label: "Open Linear issue",
+          detail: linearIssue?.url ?? "Linear issue URL is unavailable.",
+          keywords: ["open", "linear", "issue"],
+          icon: <ExternalLink size={17} />,
+          kind: "open-url",
+          url: linearIssue?.url,
+          destination: "Linear",
+          risk: "none",
+          disabled: !linearIssue?.url,
+          disabledReason: "Linear issue URL is unavailable."
+        },
+        {
+          id: "open:pr",
+          group: "Open",
+          label: "Open GitHub PR",
+          detail: prHref ?? "No GitHub PR is resolved for this issue.",
+          keywords: ["open", "github", "pr", "pull request"],
+          icon: <GitPullRequest size={17} />,
+          kind: "open-url",
+          url: prHref,
+          destination: prLabel,
+          risk: "none",
+          disabled: !prHref,
+          disabledReason: "No PR URL is available for this issue."
+        },
+        {
+          id: "open:graphite",
+          group: "Open",
+          label: "Open Graphite stack",
+          detail: graphiteHref ?? "No Graphite deep link is resolved for this issue.",
+          keywords: ["open", "graphite", "stack", "pr"],
+          icon: <GitBranch size={17} />,
+          kind: "open-url",
+          url: graphiteHref,
+          destination: "Graphite",
+          risk: "none",
+          disabled: !graphiteHref,
+          disabledReason: "No Graphite link is available for this issue."
+        },
+        {
+          id: "open:worktree-path",
+          group: "Open",
+          label: "Copy worktree path",
+          detail: commandWorkspacePath ?? "No issue worktree is resolved.",
+          keywords: ["open", "worktree", "copy", "path", "folder"],
+          icon: <FolderOpen size={17} />,
+          kind: "copy",
+          value: commandWorkspacePath,
+          destination: "Local clipboard",
+          risk: "none",
+          disabled: !commandWorkspacePath,
+          disabledReason: "No issue worktree path is available."
+        },
+        {
+          id: "review:changed-files",
+          group: "Review",
+          label: "Review changed files",
+          detail: primaryPullRequest
+            ? `${diffFileCount} changed files from ${prLabel}.`
+            : "Focus the changed-file review surface.",
+          keywords: ["review", "diff", "changed files", "pr"],
+          icon: <FileText size={17} />,
+          kind: "focus",
+          selector: ".pr-diff-panel",
+          destination: "Changed Files panel",
+          risk: "none"
+        },
+        {
+          id: "review:fix-prompt",
+          group: "Review",
+          label: "Build review fix prompt",
+          detail: "Focus selected PR comments, failing checks, and the editable fix prompt.",
+          keywords: ["review", "prompt", "fix", "comments", "checks"],
+          icon: <Sparkles size={17} />,
+          kind: "focus",
+          selector: ".fix-prompt-panel",
+          destination: "Fix Prompt panel",
+          risk: "none"
+        },
+        {
+          id: "review:timeline",
+          group: "Review",
+          label: "Show issue timeline",
+          detail: `${timelineCount} timeline events are visible for ${selected.id}.`,
+          keywords: ["timeline", "events", "history", "result"],
+          icon: <History size={17} />,
+          kind: "focus",
+          selector: ".cockpit-timeline",
+          destination: "Issue timeline",
+          risk: "none"
+        },
+        {
+          id: "dispatch:codex",
+          group: "Dispatch",
+          label: "Dispatch Codex",
+          detail: "Start a Codex runner from the selected issue worktree.",
+          keywords: ["dispatch", "codex", "runner", "run"],
+          icon: <Terminal size={17} />,
+          kind: "dispatch",
+          runnerKind: "codex",
+          destination: `${selected.id} Codex runner`,
+          risk: "runner-dispatch",
+          disabled: !window.workflowHub?.issues?.dispatchReady || !dispatchableFromCommand || isCommandRunning,
+          disabledReason: !window.workflowHub?.issues?.dispatchReady
+            ? "Desktop dispatch API unavailable."
+            : !dispatchableFromCommand
+              ? `Dispatch is only available from Ready, Todo, or In Progress. Current status is ${displayStatus}.`
+              : "Another command is running."
+        },
+        {
+          id: "dispatch:cursor",
+          group: "Dispatch",
+          label: "Dispatch Cursor SDK",
+          detail: "Start a Cursor SDK runner from the selected issue worktree.",
+          keywords: ["dispatch", "cursor", "runner", "run"],
+          icon: <Play size={17} />,
+          kind: "dispatch",
+          runnerKind: "cursor",
+          destination: `${selected.id} Cursor SDK runner`,
+          risk: "runner-dispatch",
+          disabled: !window.workflowHub?.issues?.dispatchReady || !dispatchableFromCommand || isCommandRunning,
+          disabledReason: !window.workflowHub?.issues?.dispatchReady
+            ? "Desktop dispatch API unavailable."
+            : !dispatchableFromCommand
+              ? `Dispatch is only available from Ready, Todo, or In Progress. Current status is ${displayStatus}.`
+              : "Another command is running."
+        },
+        ...statusCommands,
+        {
+          id: "pr:comment",
+          group: "PR",
+          label: "Post PR comment",
+          detail: "Unavailable until a dedicated GitHub write action owns PR comment text and destination.",
+          keywords: ["pr", "comment", "github", "write"],
+          icon: <MessageCircle size={17} />,
+          kind: "unavailable",
+          destination: prLabel,
+          risk: "pr-write",
+          disabled: true,
+          disabledReason: "GitHub PR comments remain read-only in this slice."
+        },
+        {
+          id: "guardrail:upload",
+          group: "Guardrails",
+          label: "Upload artifacts",
+          detail: selectedIssueState?.security.artifactPolicy.detail ?? "Upload policy has not loaded yet.",
+          keywords: ["upload", "artifact", "screenshot", "logs"],
+          icon: <Upload size={17} />,
+          kind: "unavailable",
+          destination: "External upload surface",
+          risk: "upload",
+          disabled: true,
+          disabledReason: selectedIssueState?.security.artifactPolicy.uploadsEnabled
+            ? "No upload action is wired to a destination in this slice."
+            : "Artifact uploads are blocked by policy."
+        },
+        {
+          id: "guardrail:delete-worktree",
+          group: "Guardrails",
+          label: "Delete worktree",
+          detail: "Destructive cleanup requires a dedicated confirmed action before it can run.",
+          keywords: ["delete", "remove", "cleanup", "worktree", "destructive"],
+          icon: <Trash2 size={17} />,
+          kind: "unavailable",
+          destination: commandWorkspacePath ?? "Issue worktree",
+          risk: "destructive",
+          disabled: true,
+          disabledReason: "Destructive worktree cleanup is not available from this command palette."
+        }
+      ];
+    },
+    [
+      diffFileCount,
+      dispatchableFromCommand,
+      displayStatus,
+      commandWorkspacePath,
+      graphiteHref,
+      isCommandRunning,
+      isWriting,
+      linearActions,
+      linearIssue?.url,
+      prHref,
+      prLabel,
+      primaryPullRequest,
+      selected.id,
+      selectedIssueState?.security.artifactPolicy.detail,
+      selectedIssueState?.security.artifactPolicy.uploadsEnabled,
+      timelineCount
+    ]
+  );
+
+  const addCommandResult = useCallback((label: string, detail: string, tone: Tone = "neutral") => {
+    setCommandTimelineResults((current) => [
+      commandTimelineEvent(label, detail, tone),
+      ...current
+    ].slice(0, 6));
+  }, []);
+
+  const resetPendingCommand = useCallback(() => {
+    setPendingCommand(undefined);
+    setCommandNote("");
+    setCommandConfirmed(false);
+    setCommandSensitiveDataConfirmed(false);
+    setCommandDryRun(false);
+    setCommandError(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingCommand) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isCommandRunning) {
+        event.preventDefault();
+        resetPendingCommand();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCommandRunning, pendingCommand, resetPendingCommand]);
+
+  const handleRunCommand = useCallback(async (command: WorkflowCommand) => {
+    if (command.disabled) return;
+
+    if (commandRequiresConfirmation(command)) {
+      setCommandPaletteOpen(false);
+      setCommandQuery("");
+      setPendingCommand(command);
+      setCommandNote("");
+      setCommandConfirmed(false);
+      setCommandSensitiveDataConfirmed(false);
+      setCommandDryRun(false);
+      setCommandError(undefined);
+      return;
+    }
+
+    setCommandPaletteOpen(false);
+    setCommandQuery("");
+
+    try {
+      if (command.kind === "open-url" && command.url) {
+        window.open(command.url, "_blank", "noreferrer");
+        addCommandResult(command.label, `Opened ${command.destination}.`, "neutral");
+        return;
+      }
+
+      if (command.kind === "focus") {
+        const target = document.querySelector<HTMLElement>(command.selector);
+        if (!target) throw new Error(`${command.destination} is not mounted.`);
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        addCommandResult(command.label, `Focused ${command.destination}.`, "neutral");
+        return;
+      }
+
+      if (command.kind === "copy" && command.value) {
+        await navigator.clipboard.writeText(command.value);
+        addCommandResult(command.label, `Copied ${command.value}.`, "success");
+      }
+    } catch (error: unknown) {
+      addCommandResult(command.label, error instanceof Error ? error.message : String(error), "danger");
+    }
+  }, [addCommandResult]);
+
+  const handleApplyPendingCommand = useCallback(async () => {
+    if (!pendingCommand) return;
+
+    setIsCommandRunning(true);
+    setCommandError(undefined);
+    try {
+      if (pendingCommand.kind === "linear-action") {
+        if (!window.workflowHub?.issues?.applyAction) {
+          throw new Error("Desktop Linear write API unavailable.");
+        }
+
+        const result = await window.workflowHub.issues.applyAction({
+          issueId: selected.id,
+          actionId: pendingCommand.action.id,
+          confirmed: true,
+          sensitiveDataConfirmed: commandSensitiveDataConfirmed,
+          note: commandNote.trim() || undefined
+        });
+        addCommandResult(
+          result.message,
+          `${result.previousStatus?.name ?? displayStatus} -> ${result.status.name}`,
+          "success"
+        );
+        resetPendingCommand();
+        await refreshDashboard();
+        return;
+      }
+
+      if (pendingCommand.kind === "dispatch") {
+        if (!window.workflowHub?.issues?.dispatchReady) {
+          throw new Error("Desktop dispatch API unavailable.");
+        }
+
+        const result = await window.workflowHub.issues.dispatchReady({
+          issueId: selected.id,
+          runnerKind: pendingCommand.runnerKind,
+          prompt: commandNote.trim() || undefined,
+          confirmed: true,
+          sensitiveDataConfirmed: commandSensitiveDataConfirmed,
+          dryRun: commandDryRun
+        });
+        addCommandResult(
+          `${selected.id}: ${pendingCommand.label}`,
+          `${result.runnerKind} ${labelForStatus(result.runner.status)} | ${result.workspaceOperation} worktree`,
+          result.dryRun ? "neutral" : "success"
+        );
+        resetPendingCommand();
+        await refreshDashboard();
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCommandError(message);
+      addCommandResult(`${selected.id}: ${pendingCommand.label} failed`, message, "danger");
+      await refreshDashboard();
+    } finally {
+      setIsCommandRunning(false);
+    }
+  }, [
+    addCommandResult,
+    commandDryRun,
+    commandNote,
+    commandSensitiveDataConfirmed,
+    displayStatus,
+    pendingCommand,
+    refreshDashboard,
+    resetPendingCommand,
+    selected.id
+  ]);
 
   return (
     <main className="app-shell">
+      <CommandPalette
+        activeCommandId={activeCommandId}
+        commands={commandActions}
+        onActiveCommandChange={setActiveCommandId}
+        onClose={() => setCommandPaletteOpen(false)}
+        onQueryChange={setCommandQuery}
+        onRun={handleRunCommand}
+        open={commandPaletteOpen}
+        query={commandQuery}
+      />
+      {pendingCommand ? (
+        <CommandConfirmationDialog
+          command={pendingCommand}
+          confirmed={commandConfirmed}
+          dryRun={commandDryRun}
+          error={commandError}
+          isRunning={isCommandRunning}
+          issueId={selected.id}
+          note={commandNote}
+          onApply={() => void handleApplyPendingCommand()}
+          onCancel={resetPendingCommand}
+          onConfirmedChange={setCommandConfirmed}
+          onDryRunChange={setCommandDryRun}
+          onNoteChange={setCommandNote}
+          onSensitiveDataConfirmedChange={setCommandSensitiveDataConfirmed}
+          sensitiveDataConfirmed={commandSensitiveDataConfirmed}
+        />
+      ) : null}
       <div className="cockpit-grid">
         <nav className="rail" aria-label="Primary">
           <div className="brand-mark" aria-label="Workflow Hub">
@@ -2910,18 +3749,49 @@ export function App() {
       </div>
 
       <footer className="command-bar">
-        <div className="command-prompt">
+        <button
+          className="command-prompt"
+          onClick={() => {
+            setCommandPaletteOpen(true);
+            setCommandQuery("");
+          }}
+          type="button"
+        >
           <kbd>Cmd K</kbd>
-          <span>{selected.id}: ask, dispatch, review</span>
+          <span>{selected.id}: open, dispatch, review, move status</span>
           <Send size={18} />
-        </div>
-        <button className="command-tool" disabled title="Runner queue" type="button">
+        </button>
+        <button
+          className="command-tool"
+          onClick={() => {
+            setCommandPaletteOpen(true);
+            setCommandQuery("dispatch");
+          }}
+          title="Runner queue"
+          type="button"
+        >
           <GitFork size={18} />
         </button>
-        <button className="command-tool" disabled title="Prompt tools" type="button">
+        <button
+          className="command-tool"
+          onClick={() => {
+            setCommandPaletteOpen(true);
+            setCommandQuery("review");
+          }}
+          title="Prompt tools"
+          type="button"
+        >
           <Sparkles size={18} />
         </button>
-        <button className="command-tool" disabled title="Terminal" type="button">
+        <button
+          className="command-tool"
+          onClick={() => {
+            setCommandPaletteOpen(true);
+            setCommandQuery("open worktree");
+          }}
+          title="Worktree commands"
+          type="button"
+        >
           <Terminal size={18} />
         </button>
       </footer>

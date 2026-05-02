@@ -1795,7 +1795,6 @@ function PullRequestDiffPanel({
   const githubHref = pullRequest?.url ?? linearPullRequest?.url;
   const graphiteHref = graphiteState?.stack?.deepLink ?? graphiteState?.deepLink;
   let displayStatus: string = diff?.status ?? pullRequestState?.status ?? "unavailable";
-  if (stale) displayStatus = "stale";
   if (diff?.status === "error" || apiError) displayStatus = "error";
   if (isLoading) displayStatus = "loading";
   const summary = diff
@@ -1833,8 +1832,8 @@ function PullRequestDiffPanel({
       {stale ? (
         <StateNotice
           compact
-          detail="The selected Linear cache is stale; refresh before using this diff as review evidence."
-          title="Stale diff context"
+          detail="Linear issue metadata is cached and may be old; GitHub diff status is shown separately."
+          title="Linear cache is stale"
           tone="warning"
         />
       ) : null}

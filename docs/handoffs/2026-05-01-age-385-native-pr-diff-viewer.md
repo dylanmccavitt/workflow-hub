@@ -8,9 +8,11 @@ The GitHub PR adapter now reads changed files for the resolved PR through the re
 
 The renderer now includes a native changed-file review surface in the central issue workspace. It shows GitHub and Graphite source links, changed-file totals, file navigation, selected-file unified hunks, additions/deletions, and file-level review-comment/check-note counts. Loading, empty, stale, unavailable, and error states are visible in the diff surface.
 
+Post-review fixes separate Linear cache staleness from GitHub diff freshness in the changed-files panel and add a visible keyboard focus state for changed-file rows.
+
 ## Next
 
-Open and review the PR for this branch.
+Review the updated PR after the post-review fixes.
 
 Manual UI review path:
 
@@ -49,9 +51,14 @@ Confirm AGE-358 resolves PR #9 and the central workspace shows Changed Files wit
 - `npm run check`
 - `git diff --check`
 - `WORKFLOW_HUB_ISSUE_ID=AGE-358 npm run dev`
+- Post-review: `npm run typecheck`
+- Post-review: `npm run build`
+- Post-review: `npm run check`
+- Post-review: `git diff --check`
 
 ## Review Notes
 
 - `api-state AGE-358` returned GitHub PR #9 with diff status `available`, 10 changed files, +1607/-54, and parsed hunks for `docs/architecture.md`.
 - The desktop smoke launched the Electron app with `WORKFLOW_HUB_ISSUE_ID=AGE-358`; Vite served `http://127.0.0.1:5173/` and the process was stopped after startup validation.
 - No GitHub comments, reviews, merges, status changes, or Graphite mutations were added by this slice.
+- Review finding fixes keep the diff status pill tied to GitHub diff/API state even when Linear cache is stale, and keyboard focus now has a visible outline on file rows.

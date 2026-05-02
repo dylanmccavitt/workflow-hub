@@ -498,6 +498,118 @@ test("starts Codex runs through the resolved issue worktree", async (t) => {
   assert.equal(result.permissionBoundary.sandbox, "read-only");
 });
 
+test("surfaces local security guardrail state without secret values", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
+    readGitHubPullRequestState: githubFixtureState,
+    readGraphiteStackState: graphiteFixtureState,
+    env: {
+      LINEAR_API_KEY: "linear-secret-value"
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      path: "/worktrees/workflow-hub/AGE-349"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  const state = await service.getIssueState("AGE-349");
+
+  assert.equal(state.security.status, "available");
+  assert.equal(state.security.actionPolicies.some((policy) => policy.id === "runner-codex"), true);
+  assert.equal(state.security.credentials.find((credential) => credential.id === "linear-api-key").status, "available");
+  assert.equal(state.security.artifactPolicy.uploadsEnabled, false);
+  assert.equal(JSON.stringify(state.security).includes("linear-secret-value"), false);
+});
+
+test("requires confirmation before real Codex runner starts", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+  let started = false;
+
+  const service = createLocalApiService({
+    readProjectConfig: () => registry,
+    registryRepository: repository,
+    syncLinearProjectIssues: syncFixtureIssue,
+    readSymphonyState: symphonyFixtureState,
+    readGitHubPullRequestState: githubFixtureState,
+    readGraphiteStackState: graphiteFixtureState,
+    startCodexLocalRun: async () => {
+      started = true;
+      return {
+        issueId: "AGE-349",
+        dryRun: false,
+        status: "finished",
+        prompt: "Inspect the local worktree.",
+        command: ["codex", "exec", "--json"],
+        cwd: "/worktrees/workflow-hub/AGE-349",
+        logPath: "/tmp/codex.jsonl",
+        summaryPath: "/tmp/codex-summary.md",
+        permissionBoundary: {
+          cwd: "/worktrees/workflow-hub/AGE-349",
+          sandbox: "workspace-write",
+          approvalPolicy: "never",
+          writableRoots: ["/worktrees/workflow-hub/AGE-349"],
+          addDirs: []
+        }
+      };
+    },
+    clock: () => new Date("2026-04-30T12:00:00.000Z"),
+    findWorkspace: () => ({
+      project: registry.projects[0],
+      path: "/worktrees/workflow-hub/AGE-349"
+    }),
+    gitRunner: (args) => {
+      const key = args.join(" ");
+      if (key === "branch --show-current") return { ok: true, stdout: "feat/age-349-local-api-boundary" };
+      if (key === "rev-parse --short HEAD") return { ok: true, stdout: "015c2f9" };
+      if (key === "remote get-url origin") {
+        return { ok: true, stdout: "git@github.com:DylanMcCavitt/workflow-hub.git" };
+      }
+      if (key === "status --short --branch") {
+        return { ok: true, stdout: "## feat/age-349-local-api-boundary" };
+      }
+      return { ok: false, error: `unexpected git command ${key}` };
+    }
+  });
+
+  await assert.rejects(
+    () => service.startCodexRun({
+      issueId: "AGE-349",
+      prompt: "Inspect the local worktree."
+    }),
+    /Confirmation is required/
+  );
+  assert.equal(started, false);
+
+  const result = await service.startCodexRun({
+    issueId: "AGE-349",
+    prompt: "Inspect the local worktree.",
+    confirmed: true
+  });
+
+  assert.equal(result.status, "finished");
+  assert.equal(started, true);
+});
+
 test("dispatches a Ready issue by creating a worktree, moving In Progress, and starting Codex with workpad context", async (t) => {
   const repository = memoryRepository();
   t.after(() => repository.close());

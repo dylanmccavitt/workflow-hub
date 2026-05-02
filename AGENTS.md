@@ -35,8 +35,10 @@
 ## Guardrails
 
 - Do not commit API keys, OAuth tokens, local service credentials, or Firebase plist contents.
+- Do not store direct secret values in project config; use ignored environment files, the launching shell, or OS/CLI credential storage and keep tracked config to env var names and paths.
 - Do not perform destructive worktree cleanup from the GUI without explicit confirmation.
 - Do not let background runners mutate a worktree unless the active issue owns that worktree.
+- Do not send prompts, Workpad notes, logs, screenshots, or local artifacts to an external surface without action-time confirmation and sensitive-data confirmation when secret-looking content is present.
 - Simulator review should use isolated DerivedData paths.
 - Device review may open Xcode because signing, device trust, and provisioning are local Apple state.
 

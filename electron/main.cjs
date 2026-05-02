@@ -107,6 +107,9 @@ async function applyIssueAction(_event, input) {
   if (input.confirmed === true) {
     args.push("--confirmed");
   }
+  if (input.sensitiveDataConfirmed === true) {
+    args.push("--sensitive-data-confirmed");
+  }
   if (typeof input.note === "string" && input.note.trim().length > 0) {
     args.push("--note", input.note.trim());
   }

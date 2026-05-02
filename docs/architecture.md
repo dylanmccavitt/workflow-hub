@@ -10,13 +10,14 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, and a main-process local API service for resolving selected issue state through typed IPC. Review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, local permission and secret guardrails, and a main-process local API service for resolving selected issue state through typed IPC. Review-control adapters are represented as explicit unavailable adapter state until the owned follow-up issues wire those systems.
 
 ## Major Components
 
 - `electron/main.cjs`: Creates the desktop window, controls external-link handling, and registers the local API IPC boundary. Native-backed cache/provider reads run through the repo CLI under the system Node runtime so Electron does not load Node-ABI native modules directly.
 - `electron/preload.cjs`: Exposes minimal safe `workflowHub.issues.list()` and `workflowHub.issues.getState(issueId)` bridges to the renderer without broad filesystem, shell, or arbitrary IPC access.
 - `scripts/lib/local-api-service.mjs`: Node-side service layer for project issue lists, selected issue state, workspace, runner, review, PR/diff state, fix-prompt contracts, and Ready-to-runner dispatch. It owns project config reads, Linear cache sync, scoped git probes, issue worktree creation/branch resolution, explicit In Progress transitions, duplicate writable-run guards, runner dispatch, normalized run timeline assembly, timeline event writes, and unavailable-adapter responses.
+- `scripts/lib/security-guardrails.mjs`: Shared Node-side permission and secret policy. It documents risky action confirmation requirements, scans prompts/Workpad notes for secret-looking content before external transmission, rejects direct secret values in project config, exposes credential availability without secret values, and keeps artifact uploads blocked by default until an explicit upload action owns them.
 - `scripts/lib/runner-timeline.mjs`: Pure normalization layer that maps Symphony, Codex, and Cursor status/event shapes into queued, starting, running, blocked, cancelling, cancelled, succeeded, failed, and unknown timeline states while preserving raw runner IDs, log paths, and raw provider event payloads for debugging.
 - `scripts/lib/review-fix-prompt.mjs`: Pure prompt builder that composes selected GitHub review comments, failing checks, Linear issue/workpad context, owned paths, and current worktree/branch into an editable fix prompt.
 - `scripts/lib/linear-sync.mjs`: Read-only Linear GraphQL adapter that pulls configured project issues, normalizes issue/workpad/link/PR attachment context, and stores rebuildable cache data in the registry.
@@ -27,7 +28,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `scripts/lib/cursor-runner.mjs`: Cursor SDK local runner adapter. It launches `@cursor/sdk` agents with `local.cwd` set to the resolved issue worktree, persists run records in the registry, and records streamed SDK messages as local timeline events.
 - `scripts/lib/codex-runner.mjs`: Codex CLI local runner adapter. It launches `codex exec --json` with `--cd` set to the resolved issue worktree, records command/cwd/session/log/summary/status metadata, and keeps sandbox/approval boundaries visible in registry events.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
-- `src/App.tsx`: Codex-style dashboard backed by the local issue-list and selected-issue API, with adapter availability, explicit Linear status actions, confirmation boundary, editable PR-fix prompt panel, Codex and Cursor local-run panels, a native GitHub changed-file/unified-diff review surface, GitHub PR/check/review state, Graphite stack state, linked Linear issue graph, and local event timeline for the selected issue.
+- `src/App.tsx`: Codex-style dashboard backed by the local issue-list and selected-issue API, with adapter availability, explicit Linear status actions, confirmation boundary, security/credential guardrail states, editable PR-fix prompt panel, Codex and Cursor local-run panels, a native GitHub changed-file/unified-diff review surface, GitHub PR/check/review state, Graphite stack state, linked Linear issue graph, and local event timeline for the selected issue.
 - `scripts/workflow-hub.mjs`: Early CLI for resolving issue workspaces and drafting open/review commands.
 - `scripts/lib/registry-db.mjs`: SQLite bootstrap, migrations, schema, and repository helpers for local cache state.
 - `config/projects.example.json`: Tracked example project registry.
@@ -42,6 +43,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - Cursor SDK and Codex are runner backends, not durable planning databases.
 - Workflow Hub displays and orchestrates these systems; it should not replace them.
 - The renderer consumes typed local API responses only. Shell commands, project config reads, SQLite access, and provider adapters stay behind the Electron main/local service boundary; Electron may delegate native-backed reads to the repo CLI instead of importing those modules in-process.
+- Secrets are represented as local credential state, not values. Project config may contain environment variable names and local paths, but direct API keys, tokens, passwords, and private keys are rejected before config is normalized.
 
 ## Main Flows
 
@@ -80,6 +82,8 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 10. Hub assembles a normalized run timeline from registry events, stored run records, dry-run dispatch events, and passive Symphony state without replacing raw runner logs or provider IDs.
 11. Runner output links back to Linear and PR evidence.
 
+Before a non-dry-run Codex or Cursor start, the local API requires explicit runner confirmation. Before any prompt or Workpad note is sent to Linear, Codex, Cursor, or a future upload target, the guardrail scans for secret-looking content and requires a separate sensitive-data confirmation when needed.
+
 ### iOS Review
 
 1. Hub resolves the issue workspace.
@@ -100,3 +104,5 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - GitHub PR sync must remain read-only; comments, reviews, checks, changed-file diffs, and merge state are displayed from GitHub as source of truth.
 - Graphite stack sync must remain read-only; Workflow Hub may display local stack order, parent/child branches, submit/merge state, and Graphite links, but it must not replace Graphite's review UI.
 - Linear comments alone are context; dispatch-capable routing must come from explicit status actions or a configured external trigger.
+- Risky local or external actions require explicit confirmation at action time.
+- Workflow Hub must not auto-upload logs, screenshots, local config, runner artifacts, or secret-looking content.

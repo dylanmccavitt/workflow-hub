@@ -28,13 +28,13 @@ Usage:
   npm run workflow -- config [--json]
   npm run workflow -- api-issues [PROJECT_ID] --json
   npm run workflow -- api-state [ISSUE_ID] --json
-  npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--dry-run] [--json]
-  npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--dry-run] [--json]
-  npm run workflow -- dispatch-ready [ISSUE_ID] --runner codex|cursor --confirmed [--prompt PROMPT] [--dry-run] [--json]
+  npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--confirmed] [--sensitive-data-confirmed] [--dry-run] [--json]
+  npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--confirmed] [--sensitive-data-confirmed] [--dry-run] [--json]
+  npm run workflow -- dispatch-ready [ISSUE_ID] --runner codex|cursor --confirmed [--sensitive-data-confirmed] [--prompt PROMPT] [--dry-run] [--json]
   npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
   npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
   npm run workflow -- linear-sync [PROJECT_ID] [--json]
-  npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--note NOTE] [--json]
+  npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--sensitive-data-confirmed] [--note NOTE] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
   npm run workflow -- review ISSUE_ID --sim|--device
@@ -191,6 +191,7 @@ function parseLinearActionArgs(args, registry) {
   let actionId;
   let note;
   let confirmed = false;
+  let sensitiveDataConfirmed = false;
   let json = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -203,6 +204,11 @@ function parseLinearActionArgs(args, registry) {
 
     if (arg === "--confirmed") {
       confirmed = true;
+      continue;
+    }
+
+    if (arg === "--sensitive-data-confirmed") {
+      sensitiveDataConfirmed = true;
       continue;
     }
 
@@ -240,7 +246,7 @@ function parseLinearActionArgs(args, registry) {
     throw new Error("linear-action requires an ACTION such as ready, human-review, or blocked.");
   }
 
-  return { issueId, actionId, confirmed, note, json };
+  return { issueId, actionId, confirmed, sensitiveDataConfirmed, note, json };
 }
 
 async function linearAction(args) {
@@ -374,6 +380,8 @@ function parseCursorRunArgs(args, registry) {
   let issueId;
   let json = false;
   let dryRun = false;
+  let confirmed = false;
+  let sensitiveDataConfirmed = false;
   let payload = {};
   let prompt;
   let model;
@@ -388,6 +396,16 @@ function parseCursorRunArgs(args, registry) {
 
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+
+    if (arg === "--confirmed") {
+      confirmed = true;
+      continue;
+    }
+
+    if (arg === "--sensitive-data-confirmed") {
+      sensitiveDataConfirmed = true;
       continue;
     }
 
@@ -441,6 +459,8 @@ function parseCursorRunArgs(args, registry) {
     issueId,
     prompt: prompt ?? payload.prompt,
     model: model ?? payload.model,
+    confirmed: confirmed || payload.confirmed === true,
+    sensitiveDataConfirmed: sensitiveDataConfirmed || payload.sensitiveDataConfirmed === true,
     dryRun: dryRun || payload.dryRun === true,
     json
   };
@@ -450,6 +470,8 @@ function parseCodexRunArgs(args, registry) {
   let issueId;
   let json = false;
   let dryRun = false;
+  let confirmed = false;
+  let sensitiveDataConfirmed = false;
   let payload = {};
   let prompt;
   let command;
@@ -468,6 +490,16 @@ function parseCodexRunArgs(args, registry) {
 
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+
+    if (arg === "--confirmed") {
+      confirmed = true;
+      continue;
+    }
+
+    if (arg === "--sensitive-data-confirmed") {
+      sensitiveDataConfirmed = true;
       continue;
     }
 
@@ -561,6 +593,8 @@ function parseCodexRunArgs(args, registry) {
     profile: profile ?? payload.profile,
     sandbox: sandbox ?? payload.sandbox,
     approvalPolicy: approvalPolicy ?? payload.approvalPolicy,
+    confirmed: confirmed || payload.confirmed === true,
+    sensitiveDataConfirmed: sensitiveDataConfirmed || payload.sensitiveDataConfirmed === true,
     dryRun: dryRun || payload.dryRun === true,
     json
   };
@@ -571,6 +605,7 @@ function parseDispatchReadyArgs(args, registry) {
   let json = false;
   let dryRun = false;
   let confirmed = false;
+  let sensitiveDataConfirmed = false;
   let payload = {};
   let runnerKind;
   let prompt;
@@ -595,6 +630,11 @@ function parseDispatchReadyArgs(args, registry) {
 
     if (arg === "--confirmed") {
       confirmed = true;
+      continue;
+    }
+
+    if (arg === "--sensitive-data-confirmed") {
+      sensitiveDataConfirmed = true;
       continue;
     }
 
@@ -699,6 +739,7 @@ function parseDispatchReadyArgs(args, registry) {
     sandbox: sandbox ?? payload.sandbox,
     approvalPolicy: approvalPolicy ?? payload.approvalPolicy,
     confirmed: confirmed || payload.confirmed === true,
+    sensitiveDataConfirmed: sensitiveDataConfirmed || payload.sensitiveDataConfirmed === true,
     dryRun: dryRun || payload.dryRun === true,
     json
   };

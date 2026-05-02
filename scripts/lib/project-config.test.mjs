@@ -7,7 +7,8 @@ import test from "node:test";
 import {
   findWorkspaceCandidates,
   inferIssueIdFromCwd,
-  resolveIssueWorkspace
+  resolveIssueWorkspace,
+  validateProjectConfig
 } from "./project-config.mjs";
 
 function tempDir(t) {
@@ -134,4 +135,39 @@ test("infers issue id from issue worktree path but not canonical checkout", (t) 
 
   assert.equal(inferIssueIdFromCwd(nestedWorkspacePath, registry).issueId, "AGE-350");
   assert.equal(inferIssueIdFromCwd(canonicalPath, registry), undefined);
+});
+
+test("rejects direct secret values in project config while allowing env var names", () => {
+  assert.doesNotThrow(() => validateProjectConfig({
+    schemaVersion: 1,
+    projects: [
+      {
+        id: "workflow-hub",
+        displayName: "Workflow Hub",
+        repo: { canonicalPath: "/repo/workflow-hub" },
+        worktrees: { roots: ["/worktrees/workflow-hub"] },
+        runners: {
+          cursor: { apiKeyEnv: "CURSOR_API_KEY" }
+        }
+      }
+    ]
+  }));
+
+  assert.throws(
+    () => validateProjectConfig({
+      schemaVersion: 1,
+      projects: [
+        {
+          id: "workflow-hub",
+          displayName: "Workflow Hub",
+          repo: { canonicalPath: "/repo/workflow-hub" },
+          worktrees: { roots: ["/worktrees/workflow-hub"] },
+          runners: {
+            cursor: { apiKey: "FAKE_DIRECT_SECRET_VALUE_123456" }
+          }
+        }
+      ]
+    }),
+    /secret-like/
+  );
 });

@@ -39,7 +39,7 @@ Usage:
   npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--sensitive-data-confirmed] [--note NOTE] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
-  npm run workflow -- review [ISSUE_ID] --sim|--device [--json]
+  npm run workflow -- review [ISSUE_ID] --sim|--device [--screenshot] [--json]
 `);
 }
 
@@ -980,6 +980,7 @@ function parseReviewArgs(args, registry) {
   let issueId;
   let target = "--sim";
   let json = false;
+  let captureScreenshot = false;
 
   for (const arg of args) {
     if (arg === "--json") {
@@ -989,6 +990,11 @@ function parseReviewArgs(args, registry) {
 
     if (arg === "--sim" || arg === "--device") {
       target = arg;
+      continue;
+    }
+
+    if (arg === "--screenshot") {
+      captureScreenshot = true;
       continue;
     }
 
@@ -1006,13 +1012,14 @@ function parseReviewArgs(args, registry) {
   return {
     issueId: selectIssueId(issueId, registry),
     target,
-    json
+    json,
+    captureScreenshot
   };
 }
 
 function review(args) {
   const registry = readProjectConfig();
-  const { issueId, target, json } = parseReviewArgs(args, registry);
+  const { issueId, target, json, captureScreenshot } = parseReviewArgs(args, registry);
   const resolved = requireResolvedWorkspace(issueId, registry);
   const project = registry.projects.find((candidate) => candidate.id === resolved.project.id);
 
@@ -1026,7 +1033,8 @@ function review(args) {
         issueId,
         project,
         workspace: resolved.workspace,
-        repository
+        repository,
+        captureScreenshot
       });
 
       if (json) {
@@ -1041,6 +1049,8 @@ function review(args) {
         `App: ${payload.appPath}`,
         `DerivedData: ${payload.derivedDataPath}`,
         `Log: ${payload.logPath}`,
+        `Screenshot: ${payload.screenshotPath ?? "not requested"}`,
+        `Evidence: ${payload.evidence.summary}`,
         `Session: ${payload.session.id}`
       ].join("\n"));
     } catch (error) {
@@ -1053,7 +1063,9 @@ function review(args) {
           session: error.details.session,
           event: error.details.event,
           derivedDataPath: error.details.derivedDataPath,
-          logPath: error.details.logPath
+          logPath: error.details.logPath,
+          screenshotPath: error.details.screenshotPath,
+          evidence: error.details.evidence
         }, null, 2));
         process.exitCode = 1;
         return;
@@ -1091,6 +1103,7 @@ function review(args) {
         "Signing caveats:",
         ...payload.signingCaveats.map((caveat) => `- ${caveat}`),
         `Log: ${payload.logPath}`,
+        `Evidence: ${payload.evidence.summary}`,
         `Session: ${payload.session.id}`
       ].join("\n"));
     } catch (error) {
@@ -1104,7 +1117,8 @@ function review(args) {
           session: error.details.session,
           event: error.details.event,
           xcodePath: error.details.xcodePath,
-          logPath: error.details.logPath
+          logPath: error.details.logPath,
+          evidence: error.details.evidence
         }, null, 2));
         process.exitCode = 1;
         return;

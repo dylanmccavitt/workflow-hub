@@ -33,6 +33,7 @@ export function runIosSimulatorReview({
   project,
   workspace,
   repository,
+  captureScreenshot = false,
   clock = () => new Date(),
   processRunner = runProcess,
   logRoot
@@ -55,6 +56,9 @@ export function runIosSimulatorReview({
   const sessionId = randomUUID();
   const derivedData = derivedDataPath(project, issueId);
   const logPath = reviewLogPath({ issueId, sessionId, logRoot });
+  const screenshotPath = captureScreenshot
+    ? reviewScreenshotPath({ issueId, sessionId, logRoot })
+    : undefined;
   const commands = [];
   const records = upsertReviewRecords({
     repository,
@@ -86,7 +90,9 @@ export function runIosSimulatorReview({
       projectId: project.id,
       workspacePath: workspace.path,
       derivedDataPath: derivedData,
-      logPath
+      logPath,
+      screenshotRequested: captureScreenshot,
+      screenshotPath
     }
   };
 
@@ -169,12 +175,38 @@ export function runIosSimulatorReview({
       commands
     });
 
+    if (captureScreenshot) {
+      runLoggedCommand({
+        label: "screenshot",
+        command: "xcrun",
+        args: ["simctl", "io", simulator.udid, "screenshot", screenshotPath],
+        processRunner,
+        logPath,
+        commands
+      });
+    }
+
     const finishedAt = clock().toISOString();
+    const evidence = buildSimulatorEvidence({
+      issueId,
+      status: "succeeded",
+      sessionId,
+      startedAt,
+      finishedAt,
+      logPath,
+      screenshotPath,
+      screenshotCaptured: captureScreenshot,
+      simulator,
+      bundleId: ios.bundleId,
+      appPath,
+      derivedDataPath: derivedData
+    });
     const metadata = {
       ...baseSession.metadata,
       simulator,
       appPath,
-      commands
+      commands,
+      evidence
     };
     const session = repository.upsertReviewSession({
       ...baseSession,
@@ -194,12 +226,14 @@ export function runIosSimulatorReview({
         appPath,
         bundleId: ios.bundleId,
         derivedDataPath: derivedData,
-        logPath
+        logPath,
+        screenshotPath,
+        evidence
       },
       createdAt: finishedAt
     });
 
-    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: succeeded\n`);
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: succeeded\nEvidence: ${evidence.summary}\n`);
 
     return {
       issueId,
@@ -212,15 +246,31 @@ export function runIosSimulatorReview({
       appPath,
       derivedDataPath: derivedData,
       logPath,
+      screenshotPath,
+      evidence,
       commands
     };
   } catch (error) {
     const finishedAt = clock().toISOString();
     const message = errorMessage(error);
+    const screenshotCaptured = captureScreenshot && fs.existsSync(screenshotPath);
+    const evidence = buildSimulatorEvidence({
+      issueId,
+      status: "failed",
+      sessionId,
+      startedAt,
+      finishedAt,
+      logPath,
+      screenshotPath,
+      screenshotCaptured,
+      derivedDataPath: derivedData,
+      error: message
+    });
     const metadata = {
       ...baseSession.metadata,
       commands,
-      error: message
+      error: message,
+      evidence
     };
     const session = repository.upsertReviewSession({
       ...baseSession,
@@ -239,12 +289,14 @@ export function runIosSimulatorReview({
         target: SIMULATOR_REVIEW_TARGET,
         error: message,
         derivedDataPath: derivedData,
-        logPath
+        logPath,
+        screenshotPath,
+        evidence
       },
       createdAt: finishedAt
     });
 
-    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: failed\nError: ${message}\n`);
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: failed\nError: ${message}\nEvidence: ${evidence.summary}\n`);
 
     if (error instanceof IosReviewError) {
       error.details = {
@@ -252,7 +304,9 @@ export function runIosSimulatorReview({
         session,
         event,
         logPath,
-        derivedDataPath: derivedData
+        derivedDataPath: derivedData,
+        screenshotPath,
+        evidence
       };
       throw error;
     }
@@ -261,7 +315,9 @@ export function runIosSimulatorReview({
       session,
       event,
       logPath,
-      derivedDataPath: derivedData
+      derivedDataPath: derivedData,
+      screenshotPath,
+      evidence
     });
   }
 }
@@ -374,9 +430,21 @@ export function runIosDeviceReview({
     });
 
     const finishedAt = clock().toISOString();
+    const evidence = buildDeviceEvidence({
+      issueId,
+      status: "launched",
+      sessionId,
+      startedAt,
+      finishedAt,
+      logPath,
+      xcodePath,
+      scheme: ios.scheme,
+      bundleId: ios.bundleId
+    });
     const metadata = {
       ...baseSession.metadata,
-      commands
+      commands,
+      evidence
     };
     const session = repository.upsertReviewSession({
       ...baseSession,
@@ -397,12 +465,13 @@ export function runIosDeviceReview({
         bundleId: ios.bundleId,
         deviceTargetGuidance: DEVICE_TARGET_GUIDANCE,
         signingCaveats: SIGNING_CAVEATS,
-        logPath
+        logPath,
+        evidence
       },
       createdAt: finishedAt
     });
 
-    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: launched\n`);
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: launched\nEvidence: ${evidence.summary}\n`);
 
     return {
       issueId,
@@ -417,15 +486,29 @@ export function runIosDeviceReview({
       deviceTargetGuidance: DEVICE_TARGET_GUIDANCE,
       signingCaveats: SIGNING_CAVEATS,
       logPath,
+      evidence,
       commands
     };
   } catch (error) {
     const finishedAt = clock().toISOString();
     const message = errorMessage(error);
+    const evidence = buildDeviceEvidence({
+      issueId,
+      status: "failed",
+      sessionId,
+      startedAt,
+      finishedAt,
+      logPath,
+      xcodePath,
+      scheme: ios.scheme,
+      bundleId: ios.bundleId,
+      error: message
+    });
     const metadata = {
       ...baseSession.metadata,
       commands,
-      error: message
+      error: message,
+      evidence
     };
     const session = repository.upsertReviewSession({
       ...baseSession,
@@ -446,12 +529,13 @@ export function runIosDeviceReview({
         xcodePath,
         scheme: ios.scheme,
         bundleId: ios.bundleId,
-        logPath
+        logPath,
+        evidence
       },
       createdAt: finishedAt
     });
 
-    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: failed\nError: ${message}\n`);
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: failed\nError: ${message}\nEvidence: ${evidence.summary}\n`);
 
     if (error instanceof IosReviewError) {
       error.details = {
@@ -459,7 +543,8 @@ export function runIosDeviceReview({
         session,
         event,
         logPath,
-        xcodePath
+        xcodePath,
+        evidence
       };
       throw error;
     }
@@ -468,7 +553,8 @@ export function runIosDeviceReview({
       session,
       event,
       logPath,
-      xcodePath
+      xcodePath,
+      evidence
     });
   }
 }
@@ -754,6 +840,92 @@ function reviewLogPath({ issueId, sessionId, logRoot }) {
   const root = logRoot
     ?? path.join(path.dirname(defaultRegistryDatabasePath()), DEFAULT_LOG_ROOT);
   return path.join(root, issueId, `${sessionId}.log`);
+}
+
+function reviewScreenshotPath({ issueId, sessionId, logRoot }) {
+  const root = logRoot
+    ?? path.join(path.dirname(defaultRegistryDatabasePath()), DEFAULT_LOG_ROOT);
+  return path.join(root, issueId, `${sessionId}.png`);
+}
+
+function buildSimulatorEvidence({
+  issueId,
+  status,
+  sessionId,
+  startedAt,
+  finishedAt,
+  logPath,
+  screenshotPath,
+  screenshotCaptured = false,
+  simulator,
+  bundleId,
+  appPath,
+  derivedDataPath,
+  error
+}) {
+  const screenshotText = screenshotCaptured
+    ? ` Screenshot: ${screenshotPath}.`
+    : screenshotPath
+      ? ` Screenshot requested but not captured: ${screenshotPath}.`
+      : " Screenshot: not requested.";
+  const simulatorText = simulator?.name ? ` on ${simulator.name}` : "";
+  const bundleText = bundleId ? ` for ${bundleId}` : "";
+  const errorText = error ? ` Error: ${error}.` : "";
+
+  return compactObject({
+    issueId,
+    target: SIMULATOR_REVIEW_TARGET,
+    status,
+    sessionId,
+    startedAt,
+    finishedAt,
+    logPath,
+    screenshotPath,
+    screenshotCaptured,
+    simulator,
+    bundleId,
+    appPath,
+    derivedDataPath,
+    error,
+    summary: `${issueId} simulator review ${status}${bundleText}${simulatorText}. Log: ${logPath}.${screenshotText}${errorText}`
+  });
+}
+
+function buildDeviceEvidence({
+  issueId,
+  status,
+  sessionId,
+  startedAt,
+  finishedAt,
+  logPath,
+  xcodePath,
+  scheme,
+  bundleId,
+  error
+}) {
+  const bundleText = bundleId ? ` for ${bundleId}` : "";
+  const errorText = error ? ` Error: ${error}.` : "";
+
+  return compactObject({
+    issueId,
+    target: DEVICE_REVIEW_TARGET,
+    status,
+    sessionId,
+    startedAt,
+    finishedAt,
+    logPath,
+    xcodePath,
+    scheme,
+    bundleId,
+    error,
+    summary: `${issueId} device review ${status}${bundleText}. Xcode: ${xcodePath}. Log: ${logPath}.${errorText}`
+  });
+}
+
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  );
 }
 
 function writeLog(logPath, body) {

@@ -363,6 +363,17 @@ function reviewLabel(review: ReviewApiState | undefined) {
   return `${labelForStatus(review.target)} review: ${labelForStatus(review.status)}`;
 }
 
+function reviewEvidenceStatus(evidence: WorkflowIssueState["issue"]["latestReviewEvidence"] | undefined) {
+  if (!evidence) return "No local review evidence recorded.";
+  const finishedAt = evidence.finishedAt ? ` | ${formatTimestamp(evidence.finishedAt)}` : "";
+  return `${labelForStatus(evidence.target)} ${labelForStatus(evidence.status)}${finishedAt}`;
+}
+
+function screenshotEvidenceText(evidence: WorkflowIssueState["issue"]["latestReviewEvidence"] | undefined) {
+  if (!evidence?.screenshotPath) return "Not requested";
+  return evidence.screenshotCaptured ? evidence.screenshotPath : `Requested, not captured: ${evidence.screenshotPath}`;
+}
+
 function branchDisplay(branch: GraphiteStackBranch | undefined) {
   if (!branch) return "None";
   const position = branch.position ? ` (${branch.position})` : "";
@@ -2909,6 +2920,7 @@ export function App() {
   const pullRequestState = gitHubPullRequestState(selectedIssueState?.pullRequests);
   const graphiteState = graphiteStackState(selectedIssueState?.pullRequests);
   const reviewState = selectedIssueState?.reviews[0];
+  const latestReviewEvidence = selectedIssueState?.issue.latestReviewEvidence;
   const linearPullRequest = linearIssue?.pullRequests[0];
   const linearActions = selectedIssueState?.linearStatusActions ?? fallbackLinearActions;
   const pendingAction = linearActions.find((action) => action.id === pendingActionId);
@@ -3699,6 +3711,16 @@ export function App() {
             <div className="review-line">
               <Workflow size={16} />
               <span>{reviewSummary}</span>
+            </div>
+            <div className="review-evidence">
+              <InspectorDatum label="Latest evidence" value={reviewEvidenceStatus(latestReviewEvidence)} />
+              {latestReviewEvidence ? (
+                <>
+                  <InspectorDatum label="Log" value={latestReviewEvidence.logPath ?? "Not recorded"} />
+                  <InspectorDatum label="Screenshot" value={screenshotEvidenceText(latestReviewEvidence)} />
+                  <p>{latestReviewEvidence.summary}</p>
+                </>
+              ) : null}
             </div>
           </section>
 

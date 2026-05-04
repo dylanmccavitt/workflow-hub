@@ -1251,6 +1251,7 @@ async function buildIssueState(issueId, project, options) {
   const adapter = linearAdapterFromSyncResult(syncResult, cachedIssue);
 
   if (cachedIssue) {
+    const reviewSessions = repository.listIssueReviewSessions(cachedIssue.id);
     return {
       issueId,
       source: "linear",
@@ -1264,7 +1265,8 @@ async function buildIssueState(issueId, project, options) {
       }),
       events: repository.listIssueEvents(cachedIssue.id),
       runs: repository.listIssueRuns(cachedIssue.id),
-      reviewSessions: repository.listIssueReviewSessions(cachedIssue.id)
+      reviewSessions,
+      latestReviewEvidence: latestReviewEvidence(reviewSessions)
     };
   }
 
@@ -1279,6 +1281,27 @@ async function buildIssueState(issueId, project, options) {
       staleAfterMs: options.linearCacheStaleAfterMs,
       error: syncResult.error
     }
+  };
+}
+
+function latestReviewEvidence(reviewSessions = []) {
+  const latest = reviewSessions
+    .filter((session) => session?.metadata?.evidence)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.finishedAt ?? left.updatedAt ?? left.createdAt ?? left.startedAt ?? "");
+      const rightTime = Date.parse(right.finishedAt ?? right.updatedAt ?? right.createdAt ?? right.startedAt ?? "");
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    })[0];
+
+  if (!latest) return undefined;
+
+  return {
+    ...latest.metadata.evidence,
+    sessionId: latest.id,
+    target: latest.target,
+    status: latest.status,
+    startedAt: latest.startedAt,
+    finishedAt: latest.finishedAt
   };
 }
 

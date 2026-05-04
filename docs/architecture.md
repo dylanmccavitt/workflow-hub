@@ -89,8 +89,8 @@ Before a non-dry-run Codex or Cursor start, the local API requires explicit runn
 1. Hub resolves the issue workspace.
 2. Hub runs local config checks.
 3. Simulator review selects a currently available configured simulator by name, preferring an already booted matching runtime.
-4. Simulator review uses isolated DerivedData per issue, builds the configured scheme from the issue worktree, installs the built app, launches the configured bundle ID, and records the local review session/log path in the registry.
-5. Device review opens the correct worktree project/workspace in Xcode, shows the configured scheme, bundle ID, target guidance, and signing caveats, and records a local request/launch session while leaving signing, provisioning, and device trust in Xcode.
+4. Simulator review uses isolated DerivedData per issue, builds the configured scheme from the issue worktree, installs the built app, launches the configured bundle ID, and records the local review session/log path, optional screenshot path, and evidence summary in the registry.
+5. Device review opens the correct worktree project/workspace in Xcode, shows the configured scheme, bundle ID, target guidance, and signing caveats, and records local request/launch evidence while leaving signing, provisioning, and device trust in Xcode.
 
 ## Important Invariants
 

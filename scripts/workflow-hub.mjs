@@ -2,13 +2,11 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  derivedDataPath,
   inferIssueIdFromCwd,
   normalizeIssueId,
   readProjectConfig,
   resolveIssueWorkspace,
-  requireIosConfig,
-  xcodeTargetArgs
+  requireIosConfig
 } from "./lib/project-config.mjs";
 import {
   createRegistryRepository,
@@ -20,6 +18,9 @@ import {
 import {
   createLocalApiService
 } from "./lib/local-api-service.mjs";
+import {
+  runIosSimulatorReview
+} from "./lib/ios-review.mjs";
 
 function usage() {
   console.log(`workflow-hub
@@ -37,7 +38,7 @@ Usage:
   npm run workflow -- linear-action [ISSUE_ID] ACTION --confirmed [--sensitive-data-confirmed] [--note NOTE] [--json]
   npm run workflow -- status [ISSUE_ID] [--json]
   npm run workflow -- open [ISSUE_ID] --zed|--xcode|--finder|--terminal|--print
-  npm run workflow -- review ISSUE_ID --sim|--device
+  npm run workflow -- review [ISSUE_ID] --sim|--device [--json]
 `);
 }
 
@@ -974,36 +975,118 @@ function openWorkspace(args) {
   process.exit(1);
 }
 
+function parseReviewArgs(args, registry) {
+  let issueId;
+  let target = "--sim";
+  let json = false;
+
+  for (const arg of args) {
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (arg === "--sim" || arg === "--device") {
+      target = arg;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown review flag: ${arg}`);
+    }
+
+    if (issueId) {
+      throw new Error(`Unexpected review argument: ${arg}`);
+    }
+
+    issueId = arg;
+  }
+
+  return {
+    issueId: selectIssueId(issueId, registry),
+    target,
+    json
+  };
+}
+
 function review(args) {
   const registry = readProjectConfig();
-  const { issueId: rawIssueId, flag } = parseIssueAndFlag(args, "--sim");
-  const issueId = selectIssueId(rawIssueId, registry);
+  const { issueId, target, json } = parseReviewArgs(args, registry);
   const resolved = requireResolvedWorkspace(issueId, registry);
   const project = registry.projects.find((candidate) => candidate.id === resolved.project.id);
 
   const ios = requireIosConfig(project);
-  const derivedData = derivedDataPath(project, issueId);
-  const xcodeArgs = xcodeTargetArgs(ios).join(" ");
 
-  if (flag === "--sim") {
-    console.log([
-      "Simulator review command draft:",
-      `cd ${resolved.workspace.path}`,
-      `xcodebuild ${xcodeArgs} -scheme ${ios.scheme} -destination 'platform=iOS Simulator,name=${ios.simulatorName}' -derivedDataPath ${derivedData} build`,
-      `xcrun simctl launch booted ${ios.bundleId}`
-    ].join("\n"));
+  if (target === "--sim") {
+    const repository = createRegistryRepository(openRegistryDatabase());
+
+    try {
+      const payload = runIosSimulatorReview({
+        issueId,
+        project,
+        workspace: resolved.workspace,
+        repository
+      });
+
+      if (json) {
+        console.log(JSON.stringify(payload, null, 2));
+        return;
+      }
+
+      console.log([
+        `${payload.issueId} simulator review ${payload.status}.`,
+        `Simulator: ${payload.simulator.name} (${payload.simulator.udid})`,
+        `Bundle: ${payload.bundleId}`,
+        `App: ${payload.appPath}`,
+        `DerivedData: ${payload.derivedDataPath}`,
+        `Log: ${payload.logPath}`,
+        `Session: ${payload.session.id}`
+      ].join("\n"));
+    } catch (error) {
+      if (json && error?.details?.session) {
+        console.log(JSON.stringify({
+          issueId,
+          projectId: project.id,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+          session: error.details.session,
+          event: error.details.event,
+          derivedDataPath: error.details.derivedDataPath,
+          logPath: error.details.logPath
+        }, null, 2));
+        process.exitCode = 1;
+        return;
+      }
+
+      throw error;
+    } finally {
+      repository.close();
+    }
     return;
   }
 
-  if (flag === "--device") {
+  if (target === "--device") {
+    const payload = {
+      issueId,
+      target: "device",
+      status: "requires-xcode",
+      xcodePath: path.join(resolved.workspace.path, ios.workspacePath ?? ios.projectPath),
+      detail: "Device review starts in Xcode because signing and device trust are local Apple state."
+    };
+
+    if (json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
     console.log([
       "Device review starts in Xcode because signing and device trust are local Apple state:",
-      `open -a Xcode ${path.join(resolved.workspace.path, ios.workspacePath ?? ios.projectPath)}`
+      `open -a Xcode ${payload.xcodePath}`
     ].join("\n"));
     return;
   }
 
-  console.error(`Unknown review target: ${flag}`);
+  console.error(`Unknown review target: ${target}`);
   process.exit(1);
 }
 

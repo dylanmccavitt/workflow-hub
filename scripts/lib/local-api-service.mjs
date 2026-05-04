@@ -1263,7 +1263,8 @@ async function buildIssueState(issueId, project, options) {
         syncError: syncResult.error
       }),
       events: repository.listIssueEvents(cachedIssue.id),
-      runs: repository.listIssueRuns(cachedIssue.id)
+      runs: repository.listIssueRuns(cachedIssue.id),
+      reviewSessions: repository.listIssueReviewSessions(cachedIssue.id)
     };
   }
 
@@ -1542,8 +1543,8 @@ function buildReviewStates(project) {
       adapter: unavailableAdapter(
         "review:simulator",
         "Simulator review",
-        "Simulator review adapter unavailable until AGE-351 wires isolated DerivedData launch.",
-        "AGE-351"
+        "Simulator review CLI is available through `workflow review <issue> --sim`; desktop launch stays unavailable until a guarded UI action owns it.",
+        "AGE-369"
       )
     },
     {

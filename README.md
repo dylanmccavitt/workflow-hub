@@ -46,4 +46,4 @@ npm run workflow -- open AGE-310 --xcode
 npm run workflow -- review AGE-310 --sim
 ```
 
-When run inside a configured issue worktree, `status` and `open` can infer the issue ID from the worktree path. Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths. See [`docs/configuration.md`](docs/configuration.md) for the schema and how canonical checkouts differ from issue worktrees.
+When run inside a configured issue worktree, `status`, `open`, and `review` can infer the issue ID from the worktree path. Simulator review uses the configured iOS project/workspace, scheme, bundle ID, simulator name, and isolated DerivedData path, then records local session status and logs. Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths. See [`docs/configuration.md`](docs/configuration.md) for the schema and how canonical checkouts differ from issue worktrees.

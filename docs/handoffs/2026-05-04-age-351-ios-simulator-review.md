@@ -6,6 +6,8 @@ Ready for Human Review on `feat/age-351-ios-simulator-review`.
 
 Implemented `workflow review <issue> --sim` as an executable simulator review path instead of a printed draft. The command resolves the issue worktree, validates the configured simulator against currently available devices, boots/opens Simulator as needed, builds the configured scheme with per-issue DerivedData, installs the built `.app` matching the configured bundle ID, launches it, and records review session status/events plus a local log path in the registry.
 
+Review pass found and fixed a command-runner edge case: signaled `spawnSync` results now count as failed commands instead of being treated as exit code `0`. This prevents a killed `xcodebuild` or `simctl` command from progressing to stale build artifacts.
+
 ## Next
 
 Review the PR and the CLI/session evidence.
@@ -22,6 +24,7 @@ Use another configured iOS issue if `AGE-481` is not the desired review target. 
 ## Risks
 
 - Live validation against clean ChoreLadder issue workspace `AGE-481` reached real `xcodebuild` on the available `iPhone 17 Pro` simulator and recorded a failed review session. The build failed in the Firebase Crashlytics script with `Could not get GOOGLE_APP_ID in Google Services file from build environment`, which indicates that issue worktree needs its ignored local app config for full launch. Workflow Hub does not print or commit those local-only files.
+- Current review rerun recorded session `df4943e8-179a-4a85-916b-3b8c2d094151` and log `/Users/dylanmccavitt/Library/Application Support/Workflow Hub/review-logs/AGE-481/df4943e8-179a-4a85-916b-3b8c2d094151.log`.
 - Desktop UI simulator launch remains disabled until a guarded UI action owns the explicit review action. This slice wires the CLI review path and local session/log recording.
 
 ## Files
@@ -56,8 +59,9 @@ Use another configured iOS issue if `AGE-481` is not the desired review target. 
 - `node scripts/workflow-hub.mjs review AGE-481 --device --json`
 - `node scripts/workflow-hub.mjs review AGE-481 --sim --json` failed at ChoreLadder build step after recording simulator review session/log because ignored Firebase local config is missing in that issue worktree.
 - `node scripts/workflow-hub.mjs api-state AGE-481 --json` confirmed the failed simulator review session and registry events are visible through the local API payload.
+- Computer Use confirmed Simulator is open as `iPhone 17 Pro - iOS 26.4` after the simulator review command.
 
 ## Review Notes
 
-- Unit tests cover the successful build/install/launch path, failed build recording path, available-simulator selection, and app bundle matching by `CFBundleIdentifier`.
-- Live simulator validation selected available `iPhone 17 Pro` UDID `133D0555-F32D-4471-9554-5068D9CC24C8`, used `/tmp/WorkflowHubDerivedData-AGE-481`, and wrote the log at `/Users/dylanmccavitt/Library/Application Support/Workflow Hub/review-logs/AGE-481/32d642be-e76f-4175-993d-b4effdf1ef1f.log`.
+- Unit tests cover the successful build/install/launch path, failed build recording path, signaled command failure path, available-simulator selection, and app bundle matching by `CFBundleIdentifier`.
+- Live simulator validation selected available `iPhone 17 Pro` UDID `133D0555-F32D-4471-9554-5068D9CC24C8`, used `/tmp/WorkflowHubDerivedData-AGE-481`, and wrote logs at `/Users/dylanmccavitt/Library/Application Support/Workflow Hub/review-logs/AGE-481/32d642be-e76f-4175-993d-b4effdf1ef1f.log` and `/Users/dylanmccavitt/Library/Application Support/Workflow Hub/review-logs/AGE-481/df4943e8-179a-4a85-916b-3b8c2d094151.log`.

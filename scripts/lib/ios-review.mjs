@@ -401,9 +401,12 @@ function runLoggedCommand({
   });
   const stdout = result.stdout?.toString?.() ?? "";
   const stderr = result.stderr?.toString?.() ?? "";
+  const signal = typeof result.signal === "string" && result.signal.length > 0
+    ? result.signal
+    : undefined;
   const status = typeof result.status === "number"
     ? result.status
-    : result.error
+    : result.error || signal
       ? 1
       : 0;
 
@@ -412,6 +415,7 @@ function runLoggedCommand({
       stdout ? `stdout:\n${stdout}` : undefined,
       stderr ? `stderr:\n${stderr}` : undefined,
       `exit: ${status}`,
+      signal ? `signal: ${signal}` : undefined,
       ""
     ].filter(Boolean).join("\n"));
   }
@@ -421,7 +425,8 @@ function runLoggedCommand({
     command,
     args,
     cwd,
-    status
+    status,
+    signal
   });
 
   if (result.error && !allowFailure) {
@@ -434,11 +439,15 @@ function runLoggedCommand({
 
   if (status !== 0 && !allowFailure) {
     const logDetail = logPath ? ` See ${logPath}.` : "";
-    throw new IosReviewError(`${label} failed with exit code ${status}.${logDetail}`, {
+    const reason = signal
+      ? `terminated by signal ${signal}`
+      : `failed with exit code ${status}`;
+    throw new IosReviewError(`${label} ${reason}.${logDetail}`, {
       command,
       args,
       cwd,
       status,
+      signal,
       logPath
     });
   }

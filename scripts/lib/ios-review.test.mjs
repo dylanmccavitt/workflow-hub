@@ -223,3 +223,54 @@ test("records a failed simulator review session when xcodebuild fails", (t) => {
     ["review.simulator.started", "review.simulator.failed"]
   );
 });
+
+test("treats a signaled xcodebuild as a failed simulator review", (t) => {
+  const root = tempDir(t);
+  const project = testProject(root);
+  const workspace = testWorkspace(root);
+  const repository = createRegistryRepository(openRegistryDatabase(":memory:"));
+  const derivedData = path.join(project.ios.derivedDataRoot, "WorkflowHubDerivedData-AGE-481");
+  const appPath = path.join(derivedData, "Build", "Products", "Debug-iphonesimulator", "ChoreLadder.app");
+  t.after(() => repository.close());
+  fs.mkdirSync(workspace.path, { recursive: true });
+  fs.mkdirSync(appPath, { recursive: true });
+  fs.writeFileSync(path.join(appPath, "Info.plist"), "plist placeholder");
+
+  assert.throws(
+    () => runIosSimulatorReview({
+      issueId: "AGE-481",
+      project,
+      workspace,
+      repository,
+      logRoot: path.join(root, "logs"),
+      clock: () => new Date("2026-05-04T15:00:00.000Z"),
+      processRunner(command, args) {
+        if (command === "xcrun" && args.join(" ") === "simctl list devices available --json") {
+          return {
+            status: 0,
+            stdout: simctlListPayload({
+              ios264: [
+                { name: "iPhone 17 Pro", udid: "sim-1", state: "Booted", isAvailable: true }
+              ]
+            }),
+            stderr: ""
+          };
+        }
+        if (command === "xcodebuild") {
+          return { status: null, signal: "SIGTERM", stdout: "", stderr: "terminated" };
+        }
+        if (command === "plutil") {
+          return { status: 0, stdout: `${project.ios.bundleId}\n`, stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      }
+    }),
+    /build terminated by signal SIGTERM/
+  );
+
+  const issue = repository.getIssueByIdentifier(project.id, "AGE-481");
+  const sessions = repository.listIssueReviewSessions(issue.id);
+  assert.equal(sessions[0].status, "failed");
+  assert.equal(sessions[0].metadata.commands.find((command) => command.label === "build").signal, "SIGTERM");
+  assert.match(sessions[0].metadata.error, /build terminated by signal SIGTERM/);
+});

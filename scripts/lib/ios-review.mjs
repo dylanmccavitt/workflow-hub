@@ -13,6 +13,12 @@ import {
 
 const DEFAULT_LOG_ROOT = "review-logs";
 const SIMULATOR_REVIEW_TARGET = "simulator";
+const DEVICE_REVIEW_TARGET = "device";
+const DEVICE_TARGET_GUIDANCE = "Select a connected, trusted iPhone or iPad in Xcode's run destination menu, confirm the configured scheme and bundle ID, then run from Xcode.";
+const SIGNING_CAVEATS = [
+  "Workflow Hub opens Xcode only; Apple signing, provisioning profiles, and device trust remain local Xcode state.",
+  "Workflow Hub does not save credentials, bypass signing, or change signing settings."
+];
 
 export class IosReviewError extends Error {
   constructor(message, details = {}) {
@@ -256,6 +262,213 @@ export function runIosSimulatorReview({
       event,
       logPath,
       derivedDataPath: derivedData
+    });
+  }
+}
+
+export function runIosDeviceReview({
+  issueId,
+  project,
+  workspace,
+  repository,
+  clock = () => new Date(),
+  processRunner = runProcess,
+  logRoot
+}) {
+  if (!issueId) {
+    throw new IosReviewError("issueId is required for device review.");
+  }
+  if (!project) {
+    throw new IosReviewError("project is required for device review.");
+  }
+  if (!workspace?.path) {
+    throw new IosReviewError("resolved issue workspace is required for device review.");
+  }
+  if (!repository) {
+    throw new IosReviewError("registry repository is required to record device review state.");
+  }
+
+  const ios = requireIosConfig(project);
+  const startedAt = clock().toISOString();
+  const sessionId = randomUUID();
+  const xcodeTarget = ios.workspacePath ?? ios.projectPath;
+  const xcodePath = path.join(workspace.path, xcodeTarget);
+  const logPath = reviewLogPath({ issueId, sessionId, logRoot });
+  const commands = [];
+  const records = upsertReviewRecords({
+    repository,
+    project,
+    issueId,
+    workspace,
+    clock
+  });
+
+  writeLog(logPath, [
+    "Workflow Hub device review",
+    `Issue: ${issueId}`,
+    `Project: ${project.displayName} (${project.id})`,
+    `Workspace: ${workspace.path}`,
+    `Xcode target: ${xcodePath}`,
+    `Scheme: ${ios.scheme}`,
+    `Bundle ID: ${ios.bundleId}`,
+    `Device target: ${DEVICE_TARGET_GUIDANCE}`,
+    "Signing caveats:",
+    ...SIGNING_CAVEATS.map((caveat) => `- ${caveat}`),
+    `Started: ${startedAt}`,
+    ""
+  ].join("\n"));
+
+  const baseSession = {
+    id: sessionId,
+    issueId: records.issue.id,
+    workspaceId: records.workspace.id,
+    target: DEVICE_REVIEW_TARGET,
+    startedAt,
+    notes: `Device review for ${issueId}`,
+    metadata: {
+      issueIdentifier: issueId,
+      projectId: project.id,
+      workspacePath: workspace.path,
+      xcodePath,
+      scheme: ios.scheme,
+      bundleId: ios.bundleId,
+      deviceTargetGuidance: DEVICE_TARGET_GUIDANCE,
+      signingCaveats: SIGNING_CAVEATS,
+      logPath
+    }
+  };
+
+  repository.upsertReviewSession({
+    ...baseSession,
+    status: "requested"
+  });
+  repository.recordEvent({
+    issueId: records.issue.id,
+    entityType: "review",
+    entityId: sessionId,
+    type: "review.device.requested",
+    message: `${issueId} device review requested`,
+    payload: {
+      target: DEVICE_REVIEW_TARGET,
+      workspacePath: workspace.path,
+      xcodePath,
+      scheme: ios.scheme,
+      bundleId: ios.bundleId,
+      logPath
+    },
+    createdAt: startedAt
+  });
+
+  try {
+    if (!fs.existsSync(xcodePath)) {
+      throw new IosReviewError(`Xcode target not found at ${xcodePath}.`, { xcodePath });
+    }
+
+    runLoggedCommand({
+      label: "open-xcode",
+      command: "open",
+      args: ["-a", "Xcode", xcodePath],
+      processRunner,
+      logPath,
+      commands
+    });
+
+    const finishedAt = clock().toISOString();
+    const metadata = {
+      ...baseSession.metadata,
+      commands
+    };
+    const session = repository.upsertReviewSession({
+      ...baseSession,
+      status: "launched",
+      finishedAt,
+      metadata
+    });
+    const event = repository.recordEvent({
+      issueId: records.issue.id,
+      entityType: "review",
+      entityId: sessionId,
+      type: "review.device.launched",
+      message: `${issueId} device review opened Xcode`,
+      payload: {
+        target: DEVICE_REVIEW_TARGET,
+        xcodePath,
+        scheme: ios.scheme,
+        bundleId: ios.bundleId,
+        deviceTargetGuidance: DEVICE_TARGET_GUIDANCE,
+        signingCaveats: SIGNING_CAVEATS,
+        logPath
+      },
+      createdAt: finishedAt
+    });
+
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: launched\n`);
+
+    return {
+      issueId,
+      projectId: project.id,
+      target: DEVICE_REVIEW_TARGET,
+      status: "launched",
+      session,
+      event,
+      xcodePath,
+      scheme: ios.scheme,
+      bundleId: ios.bundleId,
+      deviceTargetGuidance: DEVICE_TARGET_GUIDANCE,
+      signingCaveats: SIGNING_CAVEATS,
+      logPath,
+      commands
+    };
+  } catch (error) {
+    const finishedAt = clock().toISOString();
+    const message = errorMessage(error);
+    const metadata = {
+      ...baseSession.metadata,
+      commands,
+      error: message
+    };
+    const session = repository.upsertReviewSession({
+      ...baseSession,
+      status: "failed",
+      finishedAt,
+      notes: message,
+      metadata
+    });
+    const event = repository.recordEvent({
+      issueId: records.issue.id,
+      entityType: "review",
+      entityId: sessionId,
+      type: "review.device.failed",
+      message: `${issueId} device review failed`,
+      payload: {
+        target: DEVICE_REVIEW_TARGET,
+        error: message,
+        xcodePath,
+        scheme: ios.scheme,
+        bundleId: ios.bundleId,
+        logPath
+      },
+      createdAt: finishedAt
+    });
+
+    appendLog(logPath, `\nFinished: ${finishedAt}\nStatus: failed\nError: ${message}\n`);
+
+    if (error instanceof IosReviewError) {
+      error.details = {
+        ...error.details,
+        session,
+        event,
+        logPath,
+        xcodePath
+      };
+      throw error;
+    }
+
+    throw new IosReviewError(message, {
+      session,
+      event,
+      logPath,
+      xcodePath
     });
   }
 }

@@ -40,6 +40,8 @@ Optional iOS fields:
 
 `workflow review <issue> --sim` validates `simulatorName` against the currently available Simulator devices, boots/opens the selected simulator when needed, builds from the issue worktree with per-issue DerivedData, installs the built app, launches `bundleId`, and records a local review session/log path in the registry. Keep local-only app files such as Firebase plists in the target issue worktree or another ignored local setup path; Workflow Hub does not commit or print those files.
 
+`workflow review <issue> --device` opens the configured Xcode project/workspace from the resolved issue worktree, prints the configured scheme and bundle ID, provides device target guidance, and records the request/launch as a local review session. Device review intentionally leaves Apple signing, provisioning profiles, and device trust in Xcode. Workflow Hub does not save credentials, bypass signing, or change signing settings.
+
 ## Local Overrides
 
 Create a local override by copying the example:
@@ -91,6 +93,7 @@ npm run workflow -- open AGE-350 --zed
 npm run workflow -- open AGE-350 --xcode
 npm run workflow -- open AGE-350 --finder
 npm run workflow -- open AGE-350 --terminal
+npm run workflow -- review AGE-350 --device
 ```
 
 When the command is run from inside a configured issue worktree, `status` and `open` may omit the issue ID:

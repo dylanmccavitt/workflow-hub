@@ -1534,6 +1534,9 @@ function buildReviewStates(project) {
   const iosDetail = hasIosConfig
     ? "iOS review controls are intentionally explicit and remain adapter-backed."
     : "No iOS review configuration was available for the resolved project.";
+  const deviceDetail = hasIosConfig
+    ? "Device review CLI is available through `workflow review <issue> --device`; it opens the issue worktree Xcode target and records a local session while signing and device trust stay in Xcode."
+    : "No iOS review configuration was available for the resolved project.";
 
   return [
     {
@@ -1549,14 +1552,19 @@ function buildReviewStates(project) {
     },
     {
       target: "device",
-      status: "unavailable",
-      detail: "Device review may open Xcode later because signing and device trust are local Apple state.",
-      adapter: unavailableAdapter(
-        "review:device",
-        "Device review",
-        "Device review adapter unavailable until AGE-352 owns Xcode/device launch.",
-        "AGE-352"
-      )
+      status: hasIosConfig ? "available" : "not-configured",
+      detail: deviceDetail,
+      adapter: hasIosConfig
+        ? availableAdapter(
+          "review:device",
+          "Device review",
+          "Device review CLI can open Xcode for the resolved issue worktree."
+        )
+        : notConfiguredAdapter(
+          "review:device",
+          "Device review",
+          "Device review needs iOS settings in project config."
+        )
     }
   ];
 }

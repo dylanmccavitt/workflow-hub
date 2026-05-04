@@ -19,6 +19,7 @@ import {
   createLocalApiService
 } from "./lib/local-api-service.mjs";
 import {
+  runIosDeviceReview,
   runIosSimulatorReview
 } from "./lib/ios-review.mjs";
 
@@ -1066,23 +1067,53 @@ function review(args) {
   }
 
   if (target === "--device") {
-    const payload = {
-      issueId,
-      target: "device",
-      status: "requires-xcode",
-      xcodePath: path.join(resolved.workspace.path, ios.workspacePath ?? ios.projectPath),
-      detail: "Device review starts in Xcode because signing and device trust are local Apple state."
-    };
+    const repository = createRegistryRepository(openRegistryDatabase());
 
-    if (json) {
-      console.log(JSON.stringify(payload, null, 2));
-      return;
+    try {
+      const payload = runIosDeviceReview({
+        issueId,
+        project,
+        workspace: resolved.workspace,
+        repository
+      });
+
+      if (json) {
+        console.log(JSON.stringify(payload, null, 2));
+        return;
+      }
+
+      console.log([
+        `${payload.issueId} device review ${payload.status}.`,
+        `Xcode: ${payload.xcodePath}`,
+        `Scheme: ${payload.scheme}`,
+        `Bundle ID: ${payload.bundleId}`,
+        `Device target: ${payload.deviceTargetGuidance}`,
+        "Signing caveats:",
+        ...payload.signingCaveats.map((caveat) => `- ${caveat}`),
+        `Log: ${payload.logPath}`,
+        `Session: ${payload.session.id}`
+      ].join("\n"));
+    } catch (error) {
+      if (json && error?.details?.session) {
+        console.log(JSON.stringify({
+          issueId,
+          projectId: project.id,
+          target: "device",
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+          session: error.details.session,
+          event: error.details.event,
+          xcodePath: error.details.xcodePath,
+          logPath: error.details.logPath
+        }, null, 2));
+        process.exitCode = 1;
+        return;
+      }
+
+      throw error;
+    } finally {
+      repository.close();
     }
-
-    console.log([
-      "Device review starts in Xcode because signing and device trust are local Apple state:",
-      `open -a Xcode ${payload.xcodePath}`
-    ].join("\n"));
     return;
   }
 

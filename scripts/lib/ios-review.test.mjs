@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   findBuiltAppByBundleId,
+  runIosDeviceReview,
   runIosSimulatorReview,
   selectAvailableSimulator
 } from "./ios-review.mjs";
@@ -173,6 +174,92 @@ test("builds, installs, launches, and records a simulator review session", (t) =
   assert.deepEqual(
     events.map((event) => event.type),
     ["review.simulator.started", "review.simulator.succeeded"]
+  );
+});
+
+test("opens the issue worktree Xcode project and records a device review session", (t) => {
+  const root = tempDir(t);
+  const project = testProject(root);
+  const workspace = testWorkspace(root);
+  const issueId = "AGE-481";
+  const xcodePath = path.join(workspace.path, project.ios.projectPath);
+  const logRoot = path.join(root, "logs");
+  const calls = [];
+  const repository = createRegistryRepository(openRegistryDatabase(":memory:"));
+  t.after(() => repository.close());
+
+  fs.mkdirSync(xcodePath, { recursive: true });
+
+  const result = runIosDeviceReview({
+    issueId,
+    project,
+    workspace,
+    repository,
+    logRoot,
+    clock: () => new Date("2026-05-04T15:00:00.000Z"),
+    processRunner(command, args) {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(result.status, "launched");
+  assert.equal(result.target, "device");
+  assert.equal(result.xcodePath, xcodePath);
+  assert.equal(result.scheme, project.ios.scheme);
+  assert.equal(result.bundleId, project.ios.bundleId);
+  assert.match(result.deviceTargetGuidance, /connected, trusted/);
+  assert.ok(result.signingCaveats.some((caveat) => caveat.includes("does not save credentials")));
+  assert.equal(fs.existsSync(result.logPath), true);
+  assert.deepEqual(calls, [["open", "-a", "Xcode", xcodePath]]);
+
+  const issue = repository.getIssueByIdentifier(project.id, issueId);
+  const sessions = repository.listIssueReviewSessions(issue.id);
+  const events = repository.listIssueEvents(issue.id);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].target, "device");
+  assert.equal(sessions[0].status, "launched");
+  assert.equal(sessions[0].metadata.xcodePath, xcodePath);
+  assert.equal(sessions[0].metadata.scheme, project.ios.scheme);
+  assert.equal(sessions[0].metadata.bundleId, project.ios.bundleId);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["review.device.requested", "review.device.launched"]
+  );
+});
+
+test("records a failed device review session when the Xcode target is missing", (t) => {
+  const root = tempDir(t);
+  const project = testProject(root);
+  const workspace = testWorkspace(root);
+  const repository = createRegistryRepository(openRegistryDatabase(":memory:"));
+  t.after(() => repository.close());
+  fs.mkdirSync(workspace.path, { recursive: true });
+
+  assert.throws(
+    () => runIosDeviceReview({
+      issueId: "AGE-481",
+      project,
+      workspace,
+      repository,
+      logRoot: path.join(root, "logs"),
+      clock: () => new Date("2026-05-04T15:00:00.000Z"),
+      processRunner() {
+        throw new Error("open should not run when the Xcode target is missing");
+      }
+    }),
+    /Xcode target not found/
+  );
+
+  const issue = repository.getIssueByIdentifier(project.id, "AGE-481");
+  const sessions = repository.listIssueReviewSessions(issue.id);
+  const events = repository.listIssueEvents(issue.id);
+  assert.equal(sessions[0].target, "device");
+  assert.equal(sessions[0].status, "failed");
+  assert.match(sessions[0].metadata.error, /Xcode target not found/);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["review.device.requested", "review.device.failed"]
   );
 });
 

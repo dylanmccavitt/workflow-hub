@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, simulator review CLI launch, local permission and secret guardrails, and a main-process local API service for resolving selected issue state through typed IPC. Desktop review-control adapters remain explicit unavailable states until guarded UI launch actions wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, simulator review CLI launch, device review Xcode launch, local permission and secret guardrails, and a main-process local API service for resolving selected issue state through typed IPC. Desktop simulator review controls remain explicit unavailable states until guarded UI launch actions wire those systems.
 
 ## Major Components
 
@@ -90,7 +90,7 @@ Before a non-dry-run Codex or Cursor start, the local API requires explicit runn
 2. Hub runs local config checks.
 3. Simulator review selects a currently available configured simulator by name, preferring an already booted matching runtime.
 4. Simulator review uses isolated DerivedData per issue, builds the configured scheme from the issue worktree, installs the built app, launches the configured bundle ID, and records the local review session/log path in the registry.
-5. Device review opens the correct worktree project in Xcode when signing/device state is required.
+5. Device review opens the correct worktree project/workspace in Xcode, shows the configured scheme, bundle ID, target guidance, and signing caveats, and records a local request/launch session while leaving signing, provisioning, and device trust in Xcode.
 
 ## Important Invariants
 

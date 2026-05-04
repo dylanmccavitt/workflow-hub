@@ -38,9 +38,9 @@ Optional iOS fields:
 - `simulatorName`: simulator destination name. Defaults to `iPhone 17 Pro`.
 - `derivedDataRoot`: root for isolated DerivedData. Defaults to `/tmp`.
 
-`workflow review <issue> --sim` validates `simulatorName` against the currently available Simulator devices, boots/opens the selected simulator when needed, builds from the issue worktree with per-issue DerivedData, installs the built app, launches `bundleId`, and records a local review session/log path in the registry. Keep local-only app files such as Firebase plists in the target issue worktree or another ignored local setup path; Workflow Hub does not commit or print those files.
+`workflow review <issue> --sim` validates `simulatorName` against the currently available Simulator devices, boots/opens the selected simulator when needed, builds from the issue worktree with per-issue DerivedData, installs the built app, launches `bundleId`, and records a local review session/log path plus evidence summary in the registry. Add `--screenshot` to capture a local Simulator screenshot beside the review log; screenshots remain local artifacts and are not uploaded automatically. Keep local-only app files such as Firebase plists in the target issue worktree or another ignored local setup path; Workflow Hub does not commit or print those files.
 
-`workflow review <issue> --device` opens the configured Xcode project/workspace from the resolved issue worktree, prints the configured scheme and bundle ID, provides device target guidance, and records the request/launch as a local review session. Device review intentionally leaves Apple signing, provisioning profiles, and device trust in Xcode. Workflow Hub does not save credentials, bypass signing, or change signing settings.
+`workflow review <issue> --device` opens the configured Xcode project/workspace from the resolved issue worktree, prints the configured scheme and bundle ID, provides device target guidance, and records the request/launch evidence as a local review session. Device review intentionally leaves Apple signing, provisioning profiles, and device trust in Xcode. Workflow Hub does not save credentials, bypass signing, or change signing settings.
 
 ## Local Overrides
 

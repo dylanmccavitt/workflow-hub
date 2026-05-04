@@ -336,6 +336,33 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
     }
   });
 
+  await syncFixtureIssue({
+    project: registry.projects[0],
+    repository,
+    clock: () => new Date("2026-04-30T11:59:00.000Z"),
+    staleAfterMs: 60_000
+  });
+  repository.upsertReviewSession({
+    id: "review-session-1",
+    issueId: "linear-issue-AGE-349",
+    target: "simulator",
+    status: "succeeded",
+    startedAt: "2026-04-30T11:55:00.000Z",
+    finishedAt: "2026-04-30T11:58:00.000Z",
+    metadata: {
+      evidence: {
+        issueId: "AGE-349",
+        target: "simulator",
+        status: "succeeded",
+        sessionId: "review-session-1",
+        logPath: "/tmp/review.log",
+        screenshotPath: "/tmp/review.png",
+        screenshotCaptured: true,
+        summary: "AGE-349 simulator review succeeded. Log: /tmp/review.log. Screenshot: /tmp/review.png."
+      }
+    }
+  });
+
   const state = await service.getIssueState("AGE-349");
 
   assert.equal(state.issue.issueId, "AGE-349");
@@ -343,6 +370,9 @@ test("returns a typed issue state with resolved workspace, Linear cache, and Git
   assert.equal(state.issue.linear.title, "[Foundation] Local daemon and renderer API boundary");
   assert.equal(state.issue.linear.cache.status, "fresh");
   assert.match(state.issue.linear.codexWorkpad.body, /^## Codex Workpad/);
+  assert.equal(state.issue.latestReviewEvidence.sessionId, "review-session-1");
+  assert.equal(state.issue.latestReviewEvidence.logPath, "/tmp/review.log");
+  assert.equal(state.issue.latestReviewEvidence.screenshotCaptured, true);
   assert.equal(state.project.status, "available");
   assert.equal(state.project.projectId, "workflow-hub");
   assert.equal(state.workspace.status, "available");

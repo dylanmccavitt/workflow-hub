@@ -44,7 +44,8 @@ npm run workflow -- open --zed
 npm run workflow -- open AGE-310 --zed
 npm run workflow -- open AGE-310 --xcode
 npm run workflow -- review AGE-310 --sim
+npm run workflow -- review AGE-310 --sim --screenshot
 npm run workflow -- review AGE-310 --device
 ```
 
-When run inside a configured issue worktree, `status`, `open`, and `review` can infer the issue ID from the worktree path. Simulator review uses the configured iOS project/workspace, scheme, bundle ID, simulator name, and isolated DerivedData path, then records local session status and logs. Device review opens the configured issue-worktree Xcode project/workspace, prints the scheme, bundle ID, device target guidance, and signing caveats, then records the local review request/launch. Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths. See [`docs/configuration.md`](docs/configuration.md) for the schema and how canonical checkouts differ from issue worktrees.
+When run inside a configured issue worktree, `status`, `open`, and `review` can infer the issue ID from the worktree path. Simulator review uses the configured iOS project/workspace, scheme, bundle ID, simulator name, and isolated DerivedData path, then records local session status, logs, and an optional local screenshot/evidence summary. Device review opens the configured issue-worktree Xcode project/workspace, prints the scheme, bundle ID, device target guidance, and signing caveats, then records the local review request/launch evidence. Copy `config/projects.example.json` to `config/projects.json` for local machine overrides. The local config is ignored because it may contain machine-specific paths. See [`docs/configuration.md`](docs/configuration.md) for the schema and how canonical checkouts differ from issue worktrees.

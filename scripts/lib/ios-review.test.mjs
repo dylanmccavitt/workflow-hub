@@ -132,6 +132,7 @@ test("builds, installs, launches, and records a simulator review session", (t) =
     workspace,
     repository,
     logRoot,
+    captureScreenshot: true,
     clock: () => new Date("2026-05-04T15:00:00.000Z"),
     processRunner(command, args) {
       calls.push([command, ...args]);
@@ -158,12 +159,16 @@ test("builds, installs, launches, and records a simulator review session", (t) =
   assert.equal(result.appPath, appPath);
   assert.equal(result.derivedDataPath, derivedData);
   assert.equal(fs.existsSync(result.logPath), true);
+  assert.equal(result.screenshotPath, path.join(logRoot, issueId, `${result.session.id}.png`));
+  assert.equal(result.evidence.screenshotCaptured, true);
+  assert.match(result.evidence.summary, /Screenshot:/);
   assert.ok(calls.some((call) => call.join(" ") === "xcrun simctl boot sim-1"));
   assert.ok(calls.some((call) => call.join(" ") === "xcrun simctl bootstatus sim-1 -b"));
   assert.ok(calls.some((call) => call.join(" ") === "open -a Simulator"));
   assert.ok(calls.some((call) => call[0] === "xcodebuild" && call.includes(`platform=iOS Simulator,id=sim-1`)));
   assert.ok(calls.some((call) => call.join(" ") === `xcrun simctl install sim-1 ${appPath}`));
   assert.ok(calls.some((call) => call.join(" ") === `xcrun simctl launch sim-1 ${project.ios.bundleId}`));
+  assert.ok(calls.some((call) => call.join(" ") === `xcrun simctl io sim-1 screenshot ${result.screenshotPath}`));
 
   const issue = repository.getIssueByIdentifier(project.id, issueId);
   const sessions = repository.listIssueReviewSessions(issue.id);
@@ -171,6 +176,8 @@ test("builds, installs, launches, and records a simulator review session", (t) =
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].status, "succeeded");
   assert.equal(sessions[0].metadata.logPath, result.logPath);
+  assert.equal(sessions[0].metadata.evidence.logPath, result.logPath);
+  assert.equal(sessions[0].metadata.evidence.screenshotPath, result.screenshotPath);
   assert.deepEqual(
     events.map((event) => event.type),
     ["review.simulator.started", "review.simulator.succeeded"]
@@ -222,6 +229,8 @@ test("opens the issue worktree Xcode project and records a device review session
   assert.equal(sessions[0].metadata.xcodePath, xcodePath);
   assert.equal(sessions[0].metadata.scheme, project.ios.scheme);
   assert.equal(sessions[0].metadata.bundleId, project.ios.bundleId);
+  assert.equal(sessions[0].metadata.evidence.logPath, result.logPath);
+  assert.match(sessions[0].metadata.evidence.summary, /device review launched/);
   assert.deepEqual(
     events.map((event) => event.type),
     ["review.device.requested", "review.device.launched"]
@@ -257,6 +266,7 @@ test("records a failed device review session when the Xcode target is missing", 
   assert.equal(sessions[0].target, "device");
   assert.equal(sessions[0].status, "failed");
   assert.match(sessions[0].metadata.error, /Xcode target not found/);
+  assert.match(sessions[0].metadata.evidence.summary, /device review failed/);
   assert.deepEqual(
     events.map((event) => event.type),
     ["review.device.requested", "review.device.failed"]
@@ -305,6 +315,8 @@ test("records a failed simulator review session when xcodebuild fails", (t) => {
   const events = repository.listIssueEvents(issue.id);
   assert.equal(sessions[0].status, "failed");
   assert.match(sessions[0].metadata.error, /build failed with exit code 65/);
+  assert.equal(sessions[0].metadata.evidence.logPath.endsWith(".log"), true);
+  assert.match(sessions[0].metadata.evidence.summary, /simulator review failed/);
   assert.deepEqual(
     events.map((event) => event.type),
     ["review.simulator.started", "review.simulator.failed"]

@@ -111,6 +111,20 @@ export interface WorkflowReviewSession {
   updatedAt: string;
 }
 
+export interface WorkflowReviewEvidence {
+  issueId?: string;
+  target: string;
+  status: string;
+  sessionId: string;
+  startedAt?: string;
+  finishedAt?: string;
+  logPath?: string;
+  screenshotPath?: string;
+  screenshotCaptured?: boolean;
+  summary: string;
+  error?: string;
+}
+
 export interface RunnerTimelineEntry {
   id: string;
   source: "registry-event" | "run-record" | "symphony-state";
@@ -213,6 +227,7 @@ export interface IssueApiState {
   events?: WorkflowEvent[];
   runs?: WorkflowRunRecord[];
   reviewSessions?: WorkflowReviewSession[];
+  latestReviewEvidence?: WorkflowReviewEvidence;
 }
 
 export interface ProjectApiState {

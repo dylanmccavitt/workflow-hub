@@ -1105,6 +1105,28 @@ dd {
   color: #b9baad;
 }
 
+.review-evidence {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.review-evidence .inspector-datum {
+  grid-template-columns: minmax(96px, 0.5fr) minmax(0, 1fr);
+}
+
+.review-evidence .inspector-datum-icon {
+  display: none;
+}
+
+.review-evidence p {
+  margin: 0;
+  color: #aeb4a9;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .review-line a,
 .pr-link,
 .check-row a,

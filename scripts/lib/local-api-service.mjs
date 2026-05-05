@@ -205,6 +205,7 @@ export function createLocalApiService(options = {}) {
         syncError: syncResult.error
       }));
       const linearAdapter = linearAdapterFromSyncResult(syncResult, cachedIssues[0]);
+      const symphonyState = await readSymphonyState({ clock });
 
       return {
         apiVersion: LOCAL_API_VERSION,
@@ -216,7 +217,8 @@ export function createLocalApiService(options = {}) {
         }),
         adapter: linearAdapter,
         issues,
-        adapters: [projectConfigAdapter, linearAdapter]
+        symphony: symphonyState,
+        adapters: [projectConfigAdapter, linearAdapter, symphonyState.adapter]
       };
     },
 

@@ -107,6 +107,54 @@
                 "apiKeyEnv": {
                   "$ref": "#/$defs/envVarName",
                   "default": "CURSOR_API_KEY"
+                },
+                "cloud": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "apiKeyEnv": {
+                      "$ref": "#/$defs/envVarName",
+                      "default": "CURSOR_API_KEY"
+                    },
+                    "baseUrl": {
+                      "$ref": "#/$defs/nonEmptyString"
+                    },
+                    "repositoryUrl": {
+                      "$ref": "#/$defs/nonEmptyString"
+                    },
+                    "startingRef": {
+                      "$ref": "#/$defs/nonEmptyString"
+                    },
+                    "environment": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": {
+                          "enum": ["cloud", "pool", "machine"],
+                          "default": "cloud"
+                        },
+                        "name": {
+                          "$ref": "#/$defs/nonEmptyString"
+                        }
+                      }
+                    },
+                    "autoCreatePR": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "workOnCurrentBranch": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "skipReviewerRequest": {
+                      "type": "boolean",
+                      "default": false
+                    }
+                  }
                 }
               }
             },

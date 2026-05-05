@@ -10,7 +10,7 @@ The app will grow into three layers:
 2. Local hub daemon: adapters for Linear, Symphony, Codex, Cursor SDK, GitHub, Graphite, git, and iOS review commands.
 3. Local registry: SQLite cache for projects, issues, workspaces, runs, PRs, review sessions, and events.
 
-The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK and Codex local runner adapters, simulator review CLI launch, device review Xcode launch, local permission and secret guardrails, and a main-process local API service for resolving selected issue state through typed IPC. Desktop simulator review controls remain explicit unavailable states until guarded UI launch actions wire those systems.
+The current scaffold includes the UI shell, a local CLI stub, project docs, a Node-side SQLite registry module, a Linear project issue sync adapter, safe explicit Linear status/workpad write actions, a Ready-to-runner dispatch action, a passive Symphony state adapter, read-only GitHub PR/check/review/diff and Graphite stack adapters, an editable PR-fix prompt builder with local timeline persistence, Cursor SDK local and cloud runner adapters, Codex local runner adapters, simulator review CLI launch, device review Xcode launch, local permission and secret guardrails, and a main-process local API service for resolving selected issue state through typed IPC. Desktop simulator review controls remain explicit unavailable states until guarded UI launch actions wire those systems.
 
 ## Major Components
 
@@ -25,7 +25,7 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 - `scripts/lib/symphony-state.mjs`: Passive Symphony observability adapter. It reads the documented local JSON state endpoint, falls back to documented log files when the endpoint is unavailable, and normalizes queue, active, complete, blocked, failed, and unknown state without starting workers or mutating Linear.
 - `scripts/lib/github-pr-state.mjs`: Read-only GitHub adapter. It resolves PR candidates from Linear PR attachments, Linear branch names, and issue-worktree git branches, then reads PR status, merge/review state, check rollups, failing check annotations, latest review comments, changed-file summaries, unified diff hunks, and GitHub links through `gh`.
 - `scripts/lib/graphite-stack-state.mjs`: Read-only Graphite adapter. It detects the installed `gt` CLI and local Graphite initialization before running stack commands, resolves stack candidates from GitHub/Linear/workspace branch metadata, reads stack order through `gt log --stack`, direct parent/children through `gt parent`/`gt children`, and falls back to Graphite deep links when stack metadata is unavailable.
-- `scripts/lib/cursor-runner.mjs`: Cursor SDK local runner adapter. It launches `@cursor/sdk` agents with `local.cwd` set to the resolved issue worktree, persists run records in the registry, and records streamed SDK messages as local timeline events.
+- `scripts/lib/cursor-runner.mjs`: Cursor SDK local and cloud runner adapter. Local runs launch `@cursor/sdk` agents with `local.cwd` set to the resolved issue worktree. Cloud runs use Cursor's cloud API client with env-var-backed credentials, connected repository config, start/status/resume/cancel/result operations, PR link extraction, and artifact listing/download URLs. Both paths persist run records in the registry and record Cursor events for the local timeline.
 - `scripts/lib/codex-runner.mjs`: Codex CLI local runner adapter. It launches `codex exec --json` with `--cd` set to the resolved issue worktree, records command/cwd/session/log/summary/status metadata, and keeps sandbox/approval boundaries visible in registry events.
 - `src/lib/workflowHubApi.ts`: Renderer-facing TypeScript contracts for the local API payloads.
 - `src/App.tsx`: Codex-style dashboard backed by the local issue-list and selected-issue API, with adapter availability, explicit Linear status actions, confirmation boundary, security/credential guardrail states, editable PR-fix prompt panel, Codex and Cursor local-run panels, a native GitHub changed-file/unified-diff review surface, GitHub PR/check/review state, Graphite stack state, linked Linear issue graph, and local event timeline for the selected issue.
@@ -78,11 +78,12 @@ The current scaffold includes the UI shell, a local CLI stub, project docs, a No
 6. Before starting a writable runner, the local API refuses dispatch when Symphony endpoint state or local registry run records show an active writable runner already owning the same worktree.
 7. Codex local dispatch runs `codex exec --json` with `--cd` set to the issue worktree, writes JSONL and summary files under the local Workflow Hub data directory, and records sandbox/approval policy with each run.
 8. Cursor SDK local dispatch creates the agent with `local.cwd` set to the issue worktree and uses the configured model/config path from project config.
-9. Hub streams and stores status/events in the local registry.
-10. Hub assembles a normalized run timeline from registry events, stored run records, dry-run dispatch events, and passive Symphony state without replacing raw runner logs or provider IDs.
+9. Cursor SDK cloud dispatch creates or resumes a remote agent only when `runners.cursor.cloud.enabled` is true, a connected repository URL is configured, and the named API-key environment variable is present. Cloud status/result fetch stores remote run status, PR links, and artifact metadata/temporary URLs without uploading local files.
+10. Hub streams and stores status/events in the local registry.
+11. Hub assembles a normalized run timeline from registry events, stored run records, dry-run dispatch events, and passive Symphony state without replacing raw runner logs or provider IDs.
 11. Runner output links back to Linear and PR evidence.
 
-Before a non-dry-run Codex or Cursor start, the local API requires explicit runner confirmation. Before any prompt or Workpad note is sent to Linear, Codex, Cursor, or a future upload target, the guardrail scans for secret-looking content and requires a separate sensitive-data confirmation when needed.
+Before a non-dry-run Codex or Cursor start, resume, or cancel, the local API requires explicit runner confirmation. Before any prompt or Workpad note is sent to Linear, Codex, Cursor, or a future upload target, the guardrail scans for secret-looking content and requires a separate sensitive-data confirmation when needed.
 
 ### iOS Review
 
@@ -107,3 +108,4 @@ Before a non-dry-run Codex or Cursor start, the local API requires explicit runn
 - Linear comments alone are context; dispatch-capable routing must come from explicit status actions or a configured external trigger.
 - Risky local or external actions require explicit confirmation at action time.
 - Workflow Hub must not auto-upload logs, screenshots, local config, runner artifacts, or secret-looking content.
+- Cursor cloud runs are for non-device work only; simulator and device review flows stay on local review adapters.

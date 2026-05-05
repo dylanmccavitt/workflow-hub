@@ -25,6 +25,18 @@ contextBridge.exposeInMainWorld("workflowHub", {
     startCursorRun(input) {
       return ipcRenderer.invoke("workflow-hub:start-cursor-run", input);
     },
+    cursorCloudStatus(input) {
+      return ipcRenderer.invoke("workflow-hub:cursor-cloud-status", input);
+    },
+    resumeCursorCloudRun(input) {
+      return ipcRenderer.invoke("workflow-hub:resume-cursor-cloud-run", input);
+    },
+    cancelCursorCloudRun(input) {
+      return ipcRenderer.invoke("workflow-hub:cancel-cursor-cloud-run", input);
+    },
+    fetchCursorCloudResult(input) {
+      return ipcRenderer.invoke("workflow-hub:fetch-cursor-cloud-result", input);
+    },
     dispatchReady(input) {
       return ipcRenderer.invoke("workflow-hub:dispatch-ready", input);
     }

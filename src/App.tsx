@@ -1764,17 +1764,24 @@ function CursorRunPanel({
 }) {
   const cursorRunner = issueState?.runners.find((runner) => runner.kind === "Cursor SDK");
   const defaultModel = cursorRunner?.config?.model ?? "composer-2";
+  const cloudConfig = cursorRunner?.config?.cloud;
+  const cloudEnabled = cloudConfig?.enabled === true;
+  const latestRun = cursorRunner?.latestRun;
+  const latestMetadata = latestRun?.metadata as Record<string, unknown> | undefined;
+  const latestAgentId = typeof latestMetadata?.agentId === "string" ? latestMetadata.agentId : undefined;
+  const latestRunId = typeof latestMetadata?.runId === "string" ? latestMetadata.runId : latestRun?.id;
   const [model, setModel] = useState(defaultModel);
+  const [runtime, setRuntime] = useState<"local" | "cloud">("local");
   const [prompt, setPrompt] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [sensitiveDataConfirmed, setSensitiveDataConfirmed] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string>();
   const [lastResult, setLastResult] = useState<CursorRunResult>();
-  const latestRun = cursorRunner?.latestRun;
   const canRun = Boolean(
     window.workflowHub?.issues?.startCursorRun
-    && issueState?.workspace.found
+    && (runtime === "cloud" || issueState?.workspace.found)
+    && (runtime === "local" || cloudEnabled)
     && prompt.trim().length > 0
     && model.trim().length > 0
     && confirmed
@@ -1783,6 +1790,7 @@ function CursorRunPanel({
 
   useEffect(() => {
     setModel(defaultModel);
+    setRuntime("local");
     setPrompt("");
     setConfirmed(false);
     setSensitiveDataConfirmed(false);
@@ -1800,6 +1808,7 @@ function CursorRunPanel({
         issueId,
         prompt,
         model,
+        runtime,
         confirmed,
         sensitiveDataConfirmed
       });
@@ -1816,14 +1825,63 @@ function CursorRunPanel({
     }
   };
 
+  const runCloudOperation = async (operation: "status" | "result" | "cancel" | "resume") => {
+    const api = window.workflowHub?.issues;
+    if (!api || !latestAgentId) return;
+    if (operation !== "resume" && !latestRunId) return;
+
+    setIsRunning(true);
+    setRunError(undefined);
+    try {
+      const input = {
+        issueId,
+        agentId: latestAgentId,
+        runId: latestRunId,
+        prompt,
+        model,
+        confirmed,
+        sensitiveDataConfirmed
+      };
+      const result = operation === "status"
+        ? await api.cursorCloudStatus(input)
+        : operation === "result"
+          ? await api.fetchCursorCloudResult(input)
+          : operation === "cancel"
+            ? await api.cancelCursorCloudRun(input)
+            : await api.resumeCursorCloudRun(input);
+      setLastResult(result);
+      if (operation === "resume") {
+        setPrompt("");
+        setConfirmed(false);
+        setSensitiveDataConfirmed(false);
+      }
+      await onFinished();
+    } catch (error: unknown) {
+      setRunError(error instanceof Error ? error.message : String(error));
+      await onFinished();
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   return (
     <section className="cursor-run-panel" aria-label="Cursor runner">
       <div className="section-heading">
         <p className="eyebrow">Cursor SDK</p>
-        <h2>Local Run</h2>
+        <h2>{runtime === "cloud" ? "Cloud Run" : "Local Run"}</h2>
       </div>
 
       <div className="cursor-run-grid">
+        <label>
+          <span>Runtime</span>
+          <select
+            onChange={(event) => setRuntime(event.target.value === "cloud" ? "cloud" : "local")}
+            value={runtime}
+          >
+            <option value="local">Local worktree</option>
+            <option disabled={!cloudEnabled} value="cloud">Cursor cloud</option>
+          </select>
+        </label>
         <label>
           <span>Model</span>
           <input
@@ -1845,21 +1903,31 @@ function CursorRunPanel({
       <dl className="cursor-run-meta">
         <div>
           <dt>Worktree</dt>
-          <dd>{issueState?.workspace.path ?? "Not resolved"}</dd>
+          <dd>{runtime === "cloud" ? "Cloud VM via connected repository" : issueState?.workspace.path ?? "Not resolved"}</dd>
         </div>
         <div>
-          <dt>Config</dt>
-          <dd>{cursorRunner?.config?.configPath ?? "Not configured"}</dd>
+          <dt>{runtime === "cloud" ? "Cloud repo" : "Config"}</dt>
+          <dd>{runtime === "cloud" ? cloudConfig?.repositoryUrl ?? "Not configured" : cursorRunner?.config?.configPath ?? "Not configured"}</dd>
         </div>
         <div>
           <dt>Latest</dt>
-          <dd>{latestRun ? `${labelForStatus(latestRun.status)} | ${latestRun.summary ?? latestRun.id}` : "No local run"}</dd>
+          <dd>{latestRun ? `${labelForStatus(latestRun.status)} | ${latestRun.summary ?? latestRun.id}` : "No Cursor run"}</dd>
+        </div>
+        <div>
+          <dt>PRs</dt>
+          <dd>{lastResult?.prLinks?.length ? lastResult.prLinks.map((link) => link.url).join(" | ") : "No cloud PR link"}</dd>
+        </div>
+        <div>
+          <dt>Artifacts</dt>
+          <dd>{lastResult?.artifacts?.length ? `${lastResult.artifacts.length} cloud artifact(s)` : "No cloud artifacts"}</dd>
         </div>
       </dl>
 
       <StateNotice
         compact
-        detail="Cursor receives the prompt and runs against the selected issue worktree."
+        detail={runtime === "cloud"
+          ? "Cursor cloud receives the prompt and runs in a connected remote repository. Simulator and device review stay local."
+          : "Cursor receives the prompt and runs against the selected issue worktree."}
         title="Confirmation Required"
         tone="warning"
       />
@@ -1885,8 +1953,45 @@ function CursorRunPanel({
       {runError ? <p className="write-error">{runError}</p> : null}
       {lastResult ? (
         <p className="prompt-save-note">
-          {lastResult.runId ?? "Cursor run"} {labelForStatus(lastResult.status)}
+          {lastResult.runtime === "cloud" ? "Cloud" : "Local"} {lastResult.runId ?? "Cursor run"} {labelForStatus(lastResult.status)}
         </p>
+      ) : null}
+
+      {runtime === "cloud" ? (
+        <div className="runner-confirmations">
+          <button
+            className="action-button secondary"
+            disabled={!latestAgentId || !latestRunId || isRunning}
+            onClick={() => runCloudOperation("status")}
+            type="button"
+          >
+            Status
+          </button>
+          <button
+            className="action-button secondary"
+            disabled={!latestAgentId || !latestRunId || isRunning}
+            onClick={() => runCloudOperation("result")}
+            type="button"
+          >
+            Result
+          </button>
+          <button
+            className="action-button secondary"
+            disabled={!latestAgentId || !latestRunId || !confirmed || isRunning}
+            onClick={() => runCloudOperation("cancel")}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="action-button secondary"
+            disabled={!latestAgentId || prompt.trim().length === 0 || !confirmed || isRunning}
+            onClick={() => runCloudOperation("resume")}
+            type="button"
+          >
+            Resume
+          </button>
+        </div>
       ) : null}
 
       <button

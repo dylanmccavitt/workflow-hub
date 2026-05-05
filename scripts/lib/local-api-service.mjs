@@ -40,6 +40,11 @@ import {
 import {
   CURSOR_RUNNER_KIND,
   cursorConfigForProject,
+  cancelCursorCloudRun as defaultCancelCursorCloudRun,
+  fetchCursorCloudResult as defaultFetchCursorCloudResult,
+  getCursorCloudRunStatus as defaultGetCursorCloudRunStatus,
+  resumeCursorCloudRun as defaultResumeCursorCloudRun,
+  startCursorCloudRun as defaultStartCursorCloudRun,
   startCursorLocalRun as defaultStartCursorLocalRun
 } from "./cursor-runner.mjs";
 import {
@@ -86,8 +91,14 @@ export function createLocalApiService(options = {}) {
   const readGitHubPullRequestState = options.readGitHubPullRequestState ?? defaultReadGitHubPullRequestState;
   const readGraphiteStackState = options.readGraphiteStackState ?? defaultReadGraphiteStackState;
   const startCursorLocalRun = options.startCursorLocalRun ?? defaultStartCursorLocalRun;
+  const startCursorCloudRun = options.startCursorCloudRun ?? defaultStartCursorCloudRun;
+  const getCursorCloudRunStatus = options.getCursorCloudRunStatus ?? defaultGetCursorCloudRunStatus;
+  const resumeCursorCloudRun = options.resumeCursorCloudRun ?? defaultResumeCursorCloudRun;
+  const cancelCursorCloudRun = options.cancelCursorCloudRun ?? defaultCancelCursorCloudRun;
+  const fetchCursorCloudResult = options.fetchCursorCloudResult ?? defaultFetchCursorCloudResult;
   const startCodexLocalRun = options.startCodexLocalRun ?? defaultStartCodexLocalRun;
   const cursorSdkLoader = options.cursorSdkLoader;
+  const cursorCloudClientLoader = options.cursorCloudClientLoader;
   const codexProcessRunner = options.codexProcessRunner;
   const env = options.env ?? process.env;
   let registryRepository = options.registryRepository;
@@ -521,6 +532,7 @@ export function createLocalApiService(options = {}) {
       const issueId = normalizeIssueId(input?.issueId);
       const prompt = sanitizeRequiredPrompt(input?.prompt);
       const model = sanitizeOptionalString(input?.model, "model");
+      const runtime = normalizeCursorRuntime(input?.runtime);
       const dryRun = input?.dryRun === true;
       const confirmed = input?.confirmed === true;
       const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
@@ -532,7 +544,7 @@ export function createLocalApiService(options = {}) {
       }
 
       const workspaceMatch = findWorkspace(issueId, registry);
-      if (!workspaceMatch) {
+      if (runtime === "local" && !workspaceMatch) {
         throw new LocalApiValidationError(`No issue workspace was found for ${issueId}.`);
       }
 
@@ -546,7 +558,8 @@ export function createLocalApiService(options = {}) {
         textFields: [{ name: "prompt", value: prompt }]
       });
 
-      return startCursorLocalRun({
+      const startCursorRunForRuntime = runtime === "cloud" ? startCursorCloudRun : startCursorLocalRun;
+      return startCursorRunForRuntime({
         issueId,
         prompt,
         model,
@@ -556,6 +569,67 @@ export function createLocalApiService(options = {}) {
         workspace: state.workspace,
         repository,
         cursorSdkLoader,
+        cursorCloudClientLoader,
+        clock
+      });
+    },
+
+    async cursorCloudStatus(input) {
+      return cursorCloudOperation({
+        input,
+        operation: getCursorCloudRunStatus,
+        readProjectConfig,
+        selectProjectForIssue,
+        findWorkspace,
+        getIssueState: this.getIssueState.bind(this),
+        getRegistryRepository,
+        cursorCloudClientLoader,
+        clock
+      });
+    },
+
+    async resumeCursorCloudRun(input) {
+      const prompt = sanitizeRequiredPrompt(input?.prompt);
+      return cursorCloudOperation({
+        input: { ...input, prompt },
+        operation: resumeCursorCloudRun,
+        actionId: "runner-cursor",
+        textFields: [{ name: "prompt", value: prompt }],
+        readProjectConfig,
+        selectProjectForIssue,
+        findWorkspace,
+        getIssueState: this.getIssueState.bind(this),
+        getRegistryRepository,
+        cursorCloudClientLoader,
+        clock
+      });
+    },
+
+    async cancelCursorCloudRun(input) {
+      return cursorCloudOperation({
+        input,
+        operation: cancelCursorCloudRun,
+        actionId: "runner-cursor",
+        readProjectConfig,
+        selectProjectForIssue,
+        findWorkspace,
+        getIssueState: this.getIssueState.bind(this),
+        getRegistryRepository,
+        cursorCloudClientLoader,
+        clock
+      });
+    },
+
+    async fetchCursorCloudResult(input) {
+      return cursorCloudOperation({
+        input,
+        operation: fetchCursorCloudResult,
+        readProjectConfig,
+        selectProjectForIssue,
+        findWorkspace,
+        getIssueState: this.getIssueState.bind(this),
+        getRegistryRepository,
+        cursorCloudClientLoader,
         clock
       });
     },
@@ -715,6 +789,7 @@ export function createLocalApiService(options = {}) {
             issueId,
             prompt: dispatchPrompt,
             model,
+            runtime: "local",
             confirmed: true,
             sensitiveDataConfirmed,
             dryRun
@@ -757,6 +832,57 @@ function normalizeDispatchRunner(value) {
   if (["cursor", "cursor-sdk"].includes(normalized)) return "cursor";
 
   throw new LocalApiValidationError("runnerKind must be codex or cursor.");
+}
+
+function normalizeCursorRuntime(value) {
+  const normalized = String(value ?? "local").trim().toLowerCase();
+  if (normalized === "local" || normalized === "cloud") return normalized;
+  throw new LocalApiValidationError("Cursor runtime must be local or cloud.");
+}
+
+async function cursorCloudOperation({
+  input,
+  operation,
+  actionId,
+  textFields = [],
+  readProjectConfig,
+  selectProjectForIssue,
+  findWorkspace,
+  getIssueState,
+  getRegistryRepository,
+  cursorCloudClientLoader,
+  clock
+}) {
+  const issueId = normalizeIssueId(input?.issueId);
+  const confirmed = input?.confirmed === true;
+  const sensitiveDataConfirmed = input?.sensitiveDataConfirmed === true;
+  if (actionId) {
+    assertGuardedActionAllowed({
+      actionId,
+      confirmed,
+      dryRun: false,
+      sensitiveDataConfirmed,
+      textFields
+    });
+  }
+  const registry = readProjectConfig();
+  const project = selectProjectForIssue(issueId, registry.projects);
+  if (!project) {
+    throw new LocalApiValidationError("No configured project could be matched to this issue.");
+  }
+
+  const state = await getIssueState(issueId);
+  const workspaceMatch = findWorkspace(issueId, registry);
+  return operation({
+    ...input,
+    issueId,
+    project,
+    state,
+    workspace: state.workspace ?? workspaceMatch?.workspace,
+    repository: getRegistryRepository(),
+    cursorCloudClientLoader,
+    clock
+  });
 }
 
 function assertDispatchableLinearStatus(state) {
@@ -1513,18 +1639,22 @@ function buildCursorRunnerState({ issue, project, workspace }) {
 
   const resolvedConfig = cursorConfigForProject({ runners: { cursor: config } }, workspace.path);
   const latestDetail = latestRun
-    ? `Latest run ${latestRun.status}${latestRun.summary ? `: ${latestRun.summary}` : ""}`
+    ? `Latest ${latestRun.metadata?.runtime ?? "local"} run ${latestRun.status}${latestRun.summary ? `: ${latestRun.summary}` : ""}`
     : `Ready for local runs in ${workspace.path}.`;
+  const cloudDetail = resolvedConfig.cloud.enabled
+    ? ` Cloud enabled for ${resolvedConfig.cloud.repositoryUrl}; PRs ${resolvedConfig.cloud.autoCreatePR ? "auto-create" : "manual"}.`
+    : " Cloud runtime not configured.";
 
   return {
     kind: "Cursor SDK",
-    role: "Local agent harness",
+    role: resolvedConfig.cloud.enabled ? "Local and cloud agent harness" : "Local agent harness",
     status: "available",
-    detail: `${latestDetail} Model ${resolvedConfig.model}; config ${resolvedConfig.resolvedConfigPath}.`,
+    detail: `${latestDetail} Model ${resolvedConfig.model}; config ${resolvedConfig.resolvedConfigPath}.${cloudDetail}`,
     config: {
       model: resolvedConfig.model,
       configPath: resolvedConfig.resolvedConfigPath,
-      apiKeyEnv: resolvedConfig.apiKeyEnv
+      apiKeyEnv: resolvedConfig.apiKeyEnv,
+      cloud: resolvedConfig.cloud
     },
     latestRun,
     adapter: availableAdapter(

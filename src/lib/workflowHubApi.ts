@@ -251,6 +251,7 @@ export interface ProjectApiState {
       model: string;
       configPath: string;
       apiKeyEnv?: string;
+      cloud?: CursorCloudConfig;
     };
   };
   linear?: {
@@ -290,6 +291,7 @@ export interface RunnerApiState {
     logRoot?: string;
     configPath?: string;
     apiKeyEnv?: string;
+    cloud?: CursorCloudConfig;
   };
   latestRun?: WorkflowRunRecord;
 }
@@ -601,9 +603,50 @@ export interface CursorRunInput {
   issueId: string;
   prompt: string;
   model?: string;
+  runtime?: "local" | "cloud";
   confirmed?: boolean;
   sensitiveDataConfirmed?: boolean;
   dryRun?: boolean;
+}
+
+export interface CursorCloudConfig {
+  enabled: boolean;
+  apiKeyEnv?: string;
+  baseUrl?: string;
+  repositoryUrl?: string;
+  startingRef?: string;
+  environment?: {
+    type?: "cloud" | "pool" | "machine";
+    name?: string;
+  };
+  autoCreatePR?: boolean;
+  workOnCurrentBranch?: boolean;
+  skipReviewerRequest?: boolean;
+}
+
+export interface CursorCloudArtifact {
+  path: string;
+  sizeBytes?: number;
+  updatedAt?: string;
+  url?: string;
+  expiresAt?: string;
+  error?: string;
+}
+
+export interface CursorCloudPrLink {
+  url: string;
+  branch?: string;
+  repositoryUrl?: string;
+}
+
+export interface CursorCloudRunOperationInput {
+  issueId: string;
+  agentId: string;
+  runId?: string;
+  prompt?: string;
+  model?: string;
+  confirmed?: boolean;
+  sensitiveDataConfirmed?: boolean;
 }
 
 export interface CodexPermissionBoundary {
@@ -650,15 +693,21 @@ export interface CodexRunResult {
 export interface CursorRunResult {
   issueId: string;
   dryRun: boolean;
+  runtime?: "local" | "cloud";
   status: string;
   prompt: string;
   model: string;
-  cwd: string;
+  cwd?: string;
   configPath: string;
   apiKeyEnv?: string;
   agentId?: string;
   runId?: string;
   summary?: string;
+  repositoryUrl?: string;
+  startingRef?: string;
+  agentUrl?: string;
+  prLinks?: CursorCloudPrLink[];
+  artifacts?: CursorCloudArtifact[];
   streamedEventCount?: number;
   run?: WorkflowRunRecord;
   event?: WorkflowEvent;
@@ -733,6 +782,10 @@ export interface WorkflowHubApi {
     saveFixPrompt(input: SaveReviewFixPromptInput): Promise<ReviewFixPromptSaveResult>;
     startCodexRun(input: CodexRunInput): Promise<CodexRunResult>;
     startCursorRun(input: CursorRunInput): Promise<CursorRunResult>;
+    cursorCloudStatus(input: CursorCloudRunOperationInput): Promise<CursorRunResult>;
+    resumeCursorCloudRun(input: CursorCloudRunOperationInput): Promise<CursorRunResult>;
+    cancelCursorCloudRun(input: CursorCloudRunOperationInput): Promise<CursorRunResult>;
+    fetchCursorCloudResult(input: CursorCloudRunOperationInput): Promise<CursorRunResult>;
     dispatchReady(input: DispatchReadyInput): Promise<DispatchReadyResult>;
   };
 }

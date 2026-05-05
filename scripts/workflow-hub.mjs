@@ -31,7 +31,11 @@ Usage:
   npm run workflow -- api-issues [PROJECT_ID] --json
   npm run workflow -- api-state [ISSUE_ID] --json
   npm run workflow -- codex-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--sandbox MODE] [--approval-policy POLICY] [--confirmed] [--sensitive-data-confirmed] [--dry-run] [--json]
-  npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--confirmed] [--sensitive-data-confirmed] [--dry-run] [--json]
+  npm run workflow -- cursor-run [ISSUE_ID] --prompt PROMPT [--model MODEL] [--runtime local|cloud] [--confirmed] [--sensitive-data-confirmed] [--dry-run] [--json]
+  npm run workflow -- cursor-cloud-status [ISSUE_ID] --agent-id AGENT --run-id RUN [--json]
+  npm run workflow -- cursor-cloud-resume [ISSUE_ID] --agent-id AGENT --prompt PROMPT [--model MODEL] --confirmed [--sensitive-data-confirmed] [--json]
+  npm run workflow -- cursor-cloud-cancel [ISSUE_ID] --agent-id AGENT --run-id RUN --confirmed [--json]
+  npm run workflow -- cursor-cloud-result [ISSUE_ID] --agent-id AGENT --run-id RUN [--json]
   npm run workflow -- dispatch-ready [ISSUE_ID] --runner codex|cursor --confirmed [--sensitive-data-confirmed] [--prompt PROMPT] [--dry-run] [--json]
   npm run workflow -- fix-prompt [ISSUE_ID] [--review-comment ID] [--check ID] [--json]
   npm run workflow -- fix-prompt-save [ISSUE_ID] --payload BASE64_JSON [--json]
@@ -387,6 +391,7 @@ function parseCursorRunArgs(args, registry) {
   let payload = {};
   let prompt;
   let model;
+  let runtime;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -438,6 +443,15 @@ function parseCursorRunArgs(args, registry) {
       continue;
     }
 
+    if (arg === "--runtime") {
+      index += 1;
+      if (index >= args.length) {
+        throw new Error("--runtime requires a value");
+      }
+      runtime = args[index];
+      continue;
+    }
+
     if (arg.startsWith("--")) {
       throw new Error(`Unknown cursor-run flag: ${arg}`);
     }
@@ -461,11 +475,98 @@ function parseCursorRunArgs(args, registry) {
     issueId,
     prompt: prompt ?? payload.prompt,
     model: model ?? payload.model,
+    runtime: runtime ?? payload.runtime,
     confirmed: confirmed || payload.confirmed === true,
     sensitiveDataConfirmed: sensitiveDataConfirmed || payload.sensitiveDataConfirmed === true,
     dryRun: dryRun || payload.dryRun === true,
     json
   };
+}
+
+function parseCursorCloudOperationArgs(args, registry, { promptRequired = false, runRequired = true } = {}) {
+  let issueId;
+  let json = false;
+  let confirmed = false;
+  let sensitiveDataConfirmed = false;
+  let payload = {};
+  let prompt;
+  let model;
+  let agentId;
+  let runId;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    if (arg === "--confirmed") {
+      confirmed = true;
+      continue;
+    }
+    if (arg === "--sensitive-data-confirmed") {
+      sensitiveDataConfirmed = true;
+      continue;
+    }
+    if (arg === "--payload") {
+      index += 1;
+      if (index >= args.length) throw new Error("--payload requires a value");
+      payload = decodePayload(args[index]);
+      continue;
+    }
+    if (arg === "--prompt") {
+      index += 1;
+      if (index >= args.length) throw new Error("--prompt requires a value");
+      prompt = args[index];
+      continue;
+    }
+    if (arg === "--model") {
+      index += 1;
+      if (index >= args.length) throw new Error("--model requires a value");
+      model = args[index];
+      continue;
+    }
+    if (arg === "--agent-id") {
+      index += 1;
+      if (index >= args.length) throw new Error("--agent-id requires a value");
+      agentId = args[index];
+      continue;
+    }
+    if (arg === "--run-id") {
+      index += 1;
+      if (index >= args.length) throw new Error("--run-id requires a value");
+      runId = args[index];
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown cursor cloud flag: ${arg}`);
+    }
+    if (!issueId && /^[a-z]+-\d+$/i.test(arg)) {
+      issueId = normalizeIssueId(arg);
+      continue;
+    }
+    throw new Error(`Unexpected cursor cloud argument: ${arg}`);
+  }
+
+  if (!issueId) {
+    issueId = payload.issueId ? normalizeIssueId(payload.issueId) : selectIssueId(undefined, registry);
+  }
+  const parsed = {
+    ...payload,
+    issueId,
+    agentId: agentId ?? payload.agentId,
+    runId: runId ?? payload.runId,
+    prompt: prompt ?? payload.prompt,
+    model: model ?? payload.model,
+    confirmed: confirmed || payload.confirmed === true,
+    sensitiveDataConfirmed: sensitiveDataConfirmed || payload.sensitiveDataConfirmed === true,
+    json
+  };
+  if (!parsed.agentId) throw new Error("--agent-id is required");
+  if (runRequired && !parsed.runId) throw new Error("--run-id is required");
+  if (promptRequired && !parsed.prompt) throw new Error("--prompt is required");
+  return parsed;
 }
 
 function parseCodexRunArgs(args, registry) {
@@ -832,6 +933,28 @@ async function cursorRun(args) {
   ].join("\n"));
 }
 
+async function cursorCloudOperation(args, operationName, parseOptions) {
+  const registry = readProjectConfig();
+  const parsed = parseCursorCloudOperationArgs(args, registry, parseOptions);
+  const localApiService = createLocalApiService();
+  const payload = await localApiService[operationName](parsed);
+
+  if (parsed.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log([
+    `${payload.issueId} Cursor cloud run ${payload.status}.`,
+    `Agent: ${payload.agentId ?? "unknown"}`,
+    `Run: ${payload.runId ?? "unknown"}`,
+    payload.agentUrl ? `Agent URL: ${payload.agentUrl}` : undefined,
+    payload.prLinks?.length ? `PR: ${payload.prLinks[0].url}` : undefined,
+    payload.artifacts?.length ? `Artifacts: ${payload.artifacts.length}` : undefined,
+    payload.summary ? `Summary: ${payload.summary}` : undefined
+  ].filter(Boolean).join("\n"));
+}
+
 async function fixPrompt(args) {
   const registry = readProjectConfig();
   const parsed = parseReviewFixPromptArgs(args, registry);
@@ -1175,6 +1298,26 @@ async function main() {
 
   if (command === "cursor-run") {
     await cursorRun(args);
+    return;
+  }
+
+  if (command === "cursor-cloud-status") {
+    await cursorCloudOperation(args, "cursorCloudStatus");
+    return;
+  }
+
+  if (command === "cursor-cloud-resume") {
+    await cursorCloudOperation(args, "resumeCursorCloudRun", { promptRequired: true, runRequired: false });
+    return;
+  }
+
+  if (command === "cursor-cloud-cancel") {
+    await cursorCloudOperation(args, "cancelCursorCloudRun");
+    return;
+  }
+
+  if (command === "cursor-cloud-result") {
+    await cursorCloudOperation(args, "fetchCursorCloudResult");
     return;
   }
 

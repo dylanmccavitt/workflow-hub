@@ -541,6 +541,7 @@ export interface WorkflowIssueListState {
   cache: LinearCacheState;
   adapter: AdapterState;
   issues: LinearIssueDetails[];
+  symphony?: SymphonyApiState;
   adapters: AdapterState[];
 }
 

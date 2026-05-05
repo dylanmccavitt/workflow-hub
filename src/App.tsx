@@ -78,6 +78,8 @@ import type {
   RunnerTimelineEntry,
   SecurityCredentialState,
   SecurityGuardrailState,
+  SymphonyApiState,
+  SymphonyIssueState,
   WorkflowEvent,
   WorkflowIssueListState,
   WorkflowIssueState
@@ -728,6 +730,111 @@ function IssueStateGroup({
           {issues.length - visibleIssues.length} more
         </button>
       ) : null}
+    </section>
+  );
+}
+
+function blockerReason(issue: SymphonyIssueState | undefined) {
+  if (!issue) return "None";
+  return issue.lastError ?? issue.reason ?? "None";
+}
+
+function lastTriggerText(issue: SymphonyIssueState | undefined) {
+  if (!issue) return "No trigger reported";
+  const event = issue.lastEvent ? labelForStatus(issue.lastEvent) : "No trigger reported";
+  return issue.lastEventAt ? `${event} at ${formatTimestamp(issue.lastEventAt)}` : event;
+}
+
+function runnerText(issue: SymphonyIssueState | undefined) {
+  if (!issue) return "No worker reported";
+  return issue.workerHost ?? issue.sessionId ?? "Symphony";
+}
+
+function rawLogPointerText(symphony: SymphonyApiState | undefined) {
+  if (!symphony) return "No Symphony state loaded";
+  return symphony.logs?.latestPath ?? symphony.endpoint ?? symphony.logs?.root ?? "No raw pointer reported";
+}
+
+function SymphonyQueuePanel({
+  symphony,
+  onSelect
+}: {
+  symphony: SymphonyApiState | undefined;
+  onSelect: (issueId: string) => void;
+}) {
+  const issues = symphony?.issues ?? [];
+  const visibleIssues = issues
+    .slice()
+    .sort((left, right) => {
+      const order = ["active", "queue", "blocked", "failed", "complete", "unknown"];
+      return order.indexOf(left.normalizedState) - order.indexOf(right.normalizedState) ||
+        left.identifier.localeCompare(right.identifier);
+    })
+    .slice(0, 6);
+
+  return (
+    <section className="symphony-queue-panel" aria-label="Project Symphony queue">
+      <div className="symphony-queue-head">
+        <span>
+          <Workflow size={15} />
+          Symphony
+        </span>
+        <StatusPill status={symphony ? labelForStatus(symphony.status) : "Unavailable"} />
+      </div>
+      {symphony ? (
+        <>
+          <div className="symphony-count-grid" aria-label="Symphony queue counts">
+            {(["queue", "active", "blocked", "failed", "complete"] as const).map((state) => (
+              <span key={state}>
+                <strong>{symphony.counts[state] ?? 0}</strong>
+                {labelForStatus(state)}
+              </span>
+            ))}
+          </div>
+          {visibleIssues.length > 0 ? (
+            <div className="symphony-queue-list">
+              {visibleIssues.map((issue) => (
+                <button
+                  className="symphony-queue-row"
+                  key={`${issue.identifier}-${issue.normalizedState}-${issue.sessionId ?? issue.workspacePath ?? ""}`}
+                  onClick={() => onSelect(issue.identifier)}
+                  type="button"
+                >
+                  <span>
+                    <StatusDot status={labelForStatus(issue.normalizedState)} />
+                    <strong>{issue.identifier}</strong>
+                  </span>
+                  <small>{labelForStatus(issue.normalizedState)}</small>
+                  <em>{blockerReason(issue)}</em>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="symphony-queue-empty">{symphony.detail}</p>
+          )}
+        </>
+      ) : (
+        <p className="symphony-queue-empty">Project Symphony state is not loaded yet.</p>
+      )}
+    </section>
+  );
+}
+
+function SymphonyInspectorPanel({ symphony }: { symphony: SymphonyApiState | undefined }) {
+  const selected = symphony?.selectedIssue;
+
+  return (
+    <section className="inspector-section symphony-inspector">
+      <h2>Symphony</h2>
+      <div className="inspector-data-list">
+        <InspectorDatum label="Status" value={selected ? <StatusPill status={labelForStatus(selected.normalizedState)} /> : labelForStatus(symphony?.status ?? "unavailable")} />
+        <InspectorDatum label="Last trigger" value={lastTriggerText(selected)} />
+        <InspectorDatum label="Runner" value={runnerText(selected)} />
+        <InspectorDatum label="Workspace" value={selected?.workspacePath ?? "Not reported"} />
+        <InspectorDatum label="Blocker" value={blockerReason(selected)} />
+        <InspectorDatum label="Raw logs" value={rawLogPointerText(symphony)} />
+      </div>
+      <p>{symphony?.detail ?? "Symphony state is unavailable from the local API."}</p>
     </section>
   );
 }
@@ -3453,6 +3560,11 @@ export function App() {
             </div>
           </header>
 
+          <SymphonyQueuePanel
+            onSelect={handleSelectIssue}
+            symphony={issueListState?.symphony ?? selectedIssueState?.symphony}
+          />
+
           <section className="state-groups" aria-label="Issue states">
             {isIssueListLoading && !issueListState ? (
               <StateNotice title="Loading issues" detail="Reading the Workflow Hub project list from the local API." />
@@ -3698,6 +3810,8 @@ export function App() {
               ))}
             </div>
           </section>
+
+          <SymphonyInspectorPanel symphony={selectedIssueState?.symphony} />
 
           <section className="inspector-section review-inspector">
             <h2>Review</h2>

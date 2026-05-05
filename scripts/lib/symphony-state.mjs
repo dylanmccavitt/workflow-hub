@@ -72,8 +72,11 @@ export function normalizeEndpointPayload(payload, context = {}) {
   }
 
   const endpointIssues = [
-    ...arrayOrEmpty(payload?.running).map((entry) => issueFromEndpointEntry(entry, "active", context)),
-    ...arrayOrEmpty(payload?.retrying).map((entry) => issueFromEndpointEntry(entry, "queue", context))
+    ...endpointEntriesForState(payload, "active").map((entry) => issueFromEndpointEntry(entry, "active", context)),
+    ...endpointEntriesForState(payload, "queue").map((entry) => issueFromEndpointEntry(entry, "queue", context)),
+    ...endpointEntriesForState(payload, "blocked").map((entry) => issueFromEndpointEntry(entry, "blocked", context)),
+    ...endpointEntriesForState(payload, "failed").map((entry) => issueFromEndpointEntry(entry, "failed", context)),
+    ...endpointEntriesForState(payload, "complete").map((entry) => issueFromEndpointEntry(entry, "complete", context))
   ];
   const selectedIssue = findSelectedIssue(endpointIssues, context.issueId) ?? inferSelectedIssue(context);
   const issues = selectedIssue && !findSelectedIssue(endpointIssues, context.issueId)
@@ -207,6 +210,18 @@ function issueFromEndpointEntry(entry, fallbackState, context) {
     lastError: stringOrUndefined(entry?.last_error) ?? stringOrUndefined(entry?.error),
     tokens: normalizeTokens(entry?.tokens)
   };
+}
+
+function endpointEntriesForState(payload, state) {
+  const keysByState = {
+    active: ["running", "active", "in_progress", "workers"],
+    queue: ["queued", "queue", "retrying", "pending", "ready"],
+    blocked: ["blocked", "waiting", "paused"],
+    failed: ["failed", "failures", "errored", "errors"],
+    complete: ["complete", "completed", "finished", "done"]
+  };
+
+  return keysByState[state].flatMap((key) => arrayOrEmpty(payload?.[key]));
 }
 
 function normalizeEntryState(entry, fallbackState) {

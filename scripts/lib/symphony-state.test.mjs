@@ -83,6 +83,73 @@ test("normalizes running and retrying endpoint entries", () => {
   assert.equal(state.issues.find((entry) => entry.identifier === "AGE-357").normalizedState, "queue");
 });
 
+test("normalizes blocked failed and completed endpoint entries", () => {
+  const state = normalizeEndpointPayload(
+    {
+      generated_at: "2026-04-30T19:45:55Z",
+      blocked: [
+        {
+          issue_identifier: "AGE-357",
+          status: "blocked",
+          workspace_path: "/worktrees/AGE-357",
+          last_error: "waiting on review"
+        }
+      ],
+      failed: [
+        {
+          issue_identifier: "AGE-358",
+          state: "error",
+          error: "branch checkout failed"
+        }
+      ],
+      completed: [
+        {
+          issue_identifier: "AGE-359",
+          status: "done"
+        }
+      ]
+    },
+    {
+      issueId: "AGE-357",
+      issue,
+      workspace,
+      endpoint: "http://127.0.0.1:4002/api/v1/state"
+    }
+  );
+
+  assert.equal(state.counts.blocked, 1);
+  assert.equal(state.counts.failed, 1);
+  assert.equal(state.counts.complete, 1);
+  assert.equal(state.selectedIssue.normalizedState, "blocked");
+  assert.match(state.selectedIssue.reason, /blocked/);
+  assert.equal(state.issues.find((entry) => entry.identifier === "AGE-358").normalizedState, "failed");
+  assert.equal(state.issues.find((entry) => entry.identifier === "AGE-359").normalizedState, "complete");
+});
+
+test("normalizes queued endpoint aliases", () => {
+  const state = normalizeEndpointPayload(
+    {
+      generated_at: "2026-04-30T19:45:55Z",
+      queued: [
+        {
+          issue_identifier: "AGE-357",
+          status: "queued",
+          due_at: "2026-04-30T19:55:00Z"
+        }
+      ]
+    },
+    {
+      issueId: "AGE-357",
+      issue,
+      workspace,
+      endpoint: "http://127.0.0.1:4002/api/v1/state"
+    }
+  );
+
+  assert.equal(state.counts.queue, 1);
+  assert.equal(state.selectedIssue.normalizedState, "queue");
+});
+
 test("infers selected issue state from Linear when endpoint has no matching entry", () => {
   const state = normalizeEndpointPayload(
     {

@@ -1551,6 +1551,107 @@ dd {
   gap: 6px;
 }
 
+.symphony-queue-panel {
+  display: grid;
+  gap: 12px;
+  padding: 13px 12px 14px;
+  border-bottom: 1px solid #26302d;
+  background: #111816;
+}
+
+.symphony-queue-head,
+.symphony-queue-head span {
+  display: flex;
+  align-items: center;
+}
+
+.symphony-queue-head {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.symphony-queue-head span {
+  gap: 8px;
+  color: #f1efe6;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.symphony-count-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.symphony-count-grid span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 5px;
+  border: 1px solid #26302d;
+  border-radius: 7px;
+  color: #8e9488;
+  font-size: 10px;
+  text-align: center;
+}
+
+.symphony-count-grid strong {
+  color: #e8e9df;
+  font-size: 13px;
+}
+
+.symphony-queue-list {
+  display: grid;
+  gap: 3px;
+}
+
+.symphony-queue-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #dfe2d8;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.symphony-queue-row:hover {
+  border-color: #34413d;
+  background: #151f1c;
+}
+
+.symphony-queue-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.symphony-queue-row strong,
+.symphony-queue-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symphony-queue-row small {
+  color: #aeb4a9;
+  font-size: 11px;
+}
+
+.symphony-queue-row em,
+.symphony-queue-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #8e9488;
+  font-size: 11px;
+  font-style: normal;
+}
+
 .state-groups {
   align-content: start;
   gap: 0;
@@ -2178,6 +2279,13 @@ dd {
 .inspector-section h2 {
   margin-bottom: 14px;
   font-size: 15px;
+}
+
+.symphony-inspector p {
+  margin: 12px 0 0;
+  color: #a2a99d;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .inspector-data-list {

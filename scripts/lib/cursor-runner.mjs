@@ -6,18 +6,40 @@ export const CURSOR_RUNNER_KIND = "Cursor SDK";
 export const DEFAULT_CURSOR_MODEL = "composer-2";
 export const DEFAULT_CURSOR_CONFIG_PATH = ".cursor";
 export const DEFAULT_CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
+export const DEFAULT_CURSOR_CLOUD_ENV_TYPE = "cloud";
 
 export function cursorConfigForProject(project, workspacePath, overrideModel) {
   const configured = project?.runners?.cursor ?? {};
   const model = sanitizeModel(overrideModel ?? configured.model ?? DEFAULT_CURSOR_MODEL);
   const configPath = configured.configPath ?? DEFAULT_CURSOR_CONFIG_PATH;
   const apiKeyEnv = configured.apiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV;
+  const cloud = cursorCloudConfig(configured.cloud, apiKeyEnv);
 
   return {
     model,
     configPath,
     resolvedConfigPath: resolveRunnerConfigPath(configPath, workspacePath),
-    apiKeyEnv
+    apiKeyEnv,
+    cloud
+  };
+}
+
+export function cursorCloudConfig(configured = {}, fallbackApiKeyEnv = DEFAULT_CURSOR_API_KEY_ENV) {
+  const enabled = configured?.enabled === true;
+  const apiKeyEnv = configured?.apiKeyEnv ?? fallbackApiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV;
+  return {
+    enabled,
+    apiKeyEnv,
+    baseUrl: configured?.baseUrl,
+    repositoryUrl: configured?.repositoryUrl,
+    startingRef: configured?.startingRef,
+    environment: {
+      type: configured?.environment?.type ?? DEFAULT_CURSOR_CLOUD_ENV_TYPE,
+      name: configured?.environment?.name
+    },
+    autoCreatePR: configured?.autoCreatePR !== false,
+    workOnCurrentBranch: configured?.workOnCurrentBranch === true,
+    skipReviewerRequest: configured?.skipReviewerRequest === true
   };
 }
 
@@ -236,7 +258,281 @@ export async function startCursorLocalRun(input) {
   }
 }
 
+export async function startCursorCloudRun(input) {
+  const issueId = sanitizeIssueId(input.issueId);
+  const prompt = sanitizePrompt(input.prompt);
+  const clock = input.clock ?? (() => new Date());
+  const repository = input.repository;
+  const project = input.project;
+  const state = input.state;
+  const workspace = input.workspace ?? state?.workspace;
+
+  if (!repository) {
+    throw new Error("repository is required to persist Cursor cloud runs.");
+  }
+
+  if (!project) {
+    throw new Error(`No project config is available for ${issueId}.`);
+  }
+
+  const config = cursorConfigForProject(project, workspace?.path ?? project.canonicalPath ?? process.cwd(), input.model);
+  assertCloudConfigReady(config.cloud);
+  const issueRecord = upsertCursorIssue(repository, project, state, issueId, clock);
+  const workspaceRecord = workspace?.path
+    ? upsertCursorWorkspace(repository, issueRecord, workspace, clock)
+    : undefined;
+
+  if (input.dryRun === true) {
+    return {
+      issueId,
+      dryRun: true,
+      runtime: "cloud",
+      status: "ready",
+      prompt,
+      model: config.model,
+      repositoryUrl: config.cloud.repositoryUrl,
+      startingRef: config.cloud.startingRef,
+      apiKeyEnv: config.cloud.apiKeyEnv,
+      autoCreatePR: config.cloud.autoCreatePR
+    };
+  }
+
+  const apiKey = apiKeyFromEnv(config.cloud.apiKeyEnv);
+  const client = await createCloudClient({ input, apiKey, baseUrl: config.cloud.baseUrl });
+  const startedAt = clock().toISOString();
+  const request = cloudAgentRequest({ issueId, prompt, config });
+
+  try {
+    const created = await client.createAgent(request);
+    const agent = created.agent;
+    const run = created.run;
+    const status = normalizeRunStatus(run?.status ?? "running");
+    const summary = summarizeCloudRun(run);
+
+    const runRecord = repository.upsertRun({
+      id: run.id,
+      issueId: issueRecord.id,
+      workspaceId: workspaceRecord?.id,
+      runnerKind: CURSOR_RUNNER_KIND,
+      status,
+      startedAt: run.createdAt ?? startedAt,
+      finishedAt: finishedAtForStatus(status, run.updatedAt),
+      summary,
+      metadata: runMetadata({
+        agentId: agent.id,
+        runId: run.id,
+        prompt,
+        config,
+        cwd: workspace?.path,
+        dryRun: false,
+        runtime: "cloud",
+        result: run,
+        agent,
+        repositoryUrl: config.cloud.repositoryUrl
+      })
+    });
+
+    const event = recordCursorEvent(repository, issueRecord.id, run.id, {
+      type: "cursor.cloud.run.started",
+      message: `${issueId} Cursor cloud run started`,
+      createdAt: startedAt,
+      payload: cloudEventPayload({ agent, run, prompt, config, workspace })
+    });
+
+    return cursorCloudResult({ issueId, prompt, config, agent, run, runRecord, event, dryRun: false });
+  } catch (error) {
+    const failedAt = clock().toISOString();
+    const errorText = errorMessage(error);
+    const runId = `cursor-cloud-error-${randomUUID()}`;
+    const runRecord = repository.upsertRun({
+      id: runId,
+      issueId: issueRecord.id,
+      workspaceId: workspaceRecord?.id,
+      runnerKind: CURSOR_RUNNER_KIND,
+      status: "error",
+      startedAt,
+      finishedAt: failedAt,
+      summary: errorText,
+      metadata: runMetadata({
+        agentId: undefined,
+        runId,
+        prompt,
+        config,
+        cwd: workspace?.path,
+        dryRun: false,
+        runtime: "cloud",
+        error: errorText,
+        repositoryUrl: config.cloud.repositoryUrl
+      })
+    });
+
+    recordCursorEvent(repository, issueRecord.id, runId, {
+      type: "cursor.cloud.run.failed",
+      message: `${issueId} Cursor cloud run failed`,
+      createdAt: failedAt,
+      payload: {
+        runId,
+        model: config.model,
+        runtime: "cloud",
+        repositoryUrl: config.cloud.repositoryUrl,
+        status: "error",
+        error: errorText
+      }
+    });
+
+    error.cursorRun = runRecord;
+    throw error;
+  }
+}
+
+export async function getCursorCloudRunStatus(input) {
+  return fetchCursorCloudResult({ ...input, includeArtifacts: input.includeArtifacts === true });
+}
+
+export async function resumeCursorCloudRun(input) {
+  const issueId = sanitizeIssueId(input.issueId);
+  const prompt = sanitizePrompt(input.prompt);
+  const agentId = sanitizeRequiredString(input.agentId, "agentId");
+  const clock = input.clock ?? (() => new Date());
+  const repository = input.repository;
+  const project = input.project;
+  const state = input.state;
+  const workspace = input.workspace ?? state?.workspace;
+
+  if (!repository) {
+    throw new Error("repository is required to persist Cursor cloud runs.");
+  }
+  if (!project) {
+    throw new Error(`No project config is available for ${issueId}.`);
+  }
+
+  const config = cursorConfigForProject(project, workspace?.path ?? project.canonicalPath ?? process.cwd(), input.model);
+  assertCloudConfigReady(config.cloud);
+  const apiKey = apiKeyFromEnv(config.cloud.apiKeyEnv);
+  const client = await createCloudClient({ input, apiKey, baseUrl: config.cloud.baseUrl });
+  const issueRecord = upsertCursorIssue(repository, project, state, issueId, clock);
+  const workspaceRecord = workspace?.path ? upsertCursorWorkspace(repository, issueRecord, workspace, clock) : undefined;
+  const created = await client.createRun(agentId, { prompt: { text: prompt }, model: { id: config.model } });
+  const run = created.run;
+  const agent = await client.getAgent(agentId);
+  const status = normalizeRunStatus(run.status);
+  const runRecord = repository.upsertRun({
+    id: run.id,
+    issueId: issueRecord.id,
+    workspaceId: workspaceRecord?.id,
+    runnerKind: CURSOR_RUNNER_KIND,
+    status,
+    startedAt: run.createdAt ?? clock().toISOString(),
+    finishedAt: finishedAtForStatus(status, run.updatedAt),
+    summary: summarizeCloudRun(run),
+    metadata: runMetadata({
+      agentId,
+      runId: run.id,
+      prompt,
+      config,
+      cwd: workspace?.path,
+      dryRun: false,
+      runtime: "cloud",
+      result: run,
+      agent,
+      repositoryUrl: config.cloud.repositoryUrl
+    })
+  });
+  const event = recordCursorEvent(repository, issueRecord.id, run.id, {
+    type: "cursor.cloud.run.resumed",
+    message: `${issueId} Cursor cloud run resumed`,
+    createdAt: clock().toISOString(),
+    payload: cloudEventPayload({ agent, run, prompt, config, workspace })
+  });
+
+  return cursorCloudResult({ issueId, prompt, config, agent, run, runRecord, event, dryRun: false });
+}
+
+export async function cancelCursorCloudRun(input) {
+  const issueId = sanitizeIssueId(input.issueId);
+  const agentId = sanitizeRequiredString(input.agentId, "agentId");
+  const runId = sanitizeRequiredString(input.runId, "runId");
+  const clock = input.clock ?? (() => new Date());
+  const client = await cloudClientForOperation(input);
+  await client.cancelRun({ agentId, runId });
+  const result = await fetchCursorCloudResult({ ...input, issueId, agentId, runId, clock });
+  return {
+    ...result,
+    cancelled: true
+  };
+}
+
+export async function fetchCursorCloudResult(input) {
+  const issueId = sanitizeIssueId(input.issueId);
+  const agentId = sanitizeRequiredString(input.agentId, "agentId");
+  const runId = sanitizeRequiredString(input.runId, "runId");
+  const clock = input.clock ?? (() => new Date());
+  const repository = input.repository;
+  const project = input.project;
+  const state = input.state;
+  const workspace = input.workspace ?? state?.workspace;
+
+  if (!repository) {
+    throw new Error("repository is required to persist Cursor cloud run status.");
+  }
+  if (!project) {
+    throw new Error(`No project config is available for ${issueId}.`);
+  }
+
+  const config = cursorConfigForProject(project, workspace?.path ?? project.canonicalPath ?? process.cwd(), input.model);
+  assertCloudConfigReady(config.cloud);
+  const client = await cloudClientForOperation({ ...input, project, config });
+  const [agent, run] = await Promise.all([
+    client.getAgent(agentId),
+    client.getRun({ agentId, runId })
+  ]);
+  const artifacts = input.includeArtifacts === false
+    ? []
+    : await listCloudArtifactsWithUrls(client, agentId);
+  const issueRecord = upsertCursorIssue(repository, project, state, issueId, clock);
+  const workspaceRecord = workspace?.path ? upsertCursorWorkspace(repository, issueRecord, workspace, clock) : undefined;
+  const status = normalizeRunStatus(run.status);
+  const runRecord = repository.upsertRun({
+    id: run.id,
+    issueId: issueRecord.id,
+    workspaceId: workspaceRecord?.id,
+    runnerKind: CURSOR_RUNNER_KIND,
+    status,
+    startedAt: run.createdAt,
+    finishedAt: finishedAtForStatus(status, run.updatedAt),
+    summary: summarizeCloudRun(run),
+    metadata: runMetadata({
+      agentId,
+      runId,
+      prompt: input.prompt,
+      config,
+      cwd: workspace?.path,
+      dryRun: false,
+      runtime: "cloud",
+      result: run,
+      agent,
+      artifacts,
+      repositoryUrl: config.cloud.repositoryUrl
+    })
+  });
+  const event = recordCursorEvent(repository, issueRecord.id, run.id, {
+    type: "cursor.cloud.run.status",
+    message: `${issueId} Cursor cloud run ${status}`,
+    createdAt: clock().toISOString(),
+    payload: {
+      ...cloudEventPayload({ agent, run, prompt: input.prompt, config, workspace }),
+      artifacts
+    }
+  });
+
+  return cursorCloudResult({ issueId, prompt: input.prompt, config, agent, run, artifacts, runRecord, event, dryRun: false });
+}
+
 async function defaultCursorSdkLoader() {
+  return import("@cursor/sdk");
+}
+
+async function defaultCursorCloudClientLoader() {
   return import("@cursor/sdk");
 }
 
@@ -339,9 +635,10 @@ function recordCursorEvent(repository, issueId, entityId, event) {
   });
 }
 
-function runMetadata({ agentId, runId, prompt, config, cwd, dryRun, result, error }) {
+function runMetadata({ agentId, runId, prompt, config, cwd, dryRun, result, error, runtime = "local", agent, artifacts, repositoryUrl }) {
   return {
     provider: "cursor-sdk",
+    runtime,
     agentId,
     runId,
     model: config.model,
@@ -350,10 +647,160 @@ function runMetadata({ agentId, runId, prompt, config, cwd, dryRun, result, erro
     configPath: config.resolvedConfigPath,
     configuredConfigPath: config.configPath,
     apiKeyEnv: config.apiKeyEnv,
+    cloud: config.cloud,
+    agent,
+    artifacts,
+    repositoryUrl,
+    prLinks: prLinksFromCloudRun(result),
     dryRun,
     result,
     error
   };
+}
+
+function assertCloudConfigReady(cloud) {
+  if (!cloud?.enabled) {
+    throw new Error("Cursor cloud runner is not enabled for this project.");
+  }
+  if (!cloud.repositoryUrl) {
+    throw new Error("Cursor cloud runner requires runners.cursor.cloud.repositoryUrl.");
+  }
+  if (!cloud.apiKeyEnv) {
+    throw new Error("Cursor cloud runner requires an API key environment variable name.");
+  }
+}
+
+function apiKeyFromEnv(apiKeyEnv) {
+  const apiKey = process.env[apiKeyEnv];
+  if (!apiKey) {
+    throw new Error(`${apiKeyEnv} is not set; Cursor cloud runs require a local API key environment variable.`);
+  }
+  return apiKey;
+}
+
+async function createCloudClient({ input, apiKey, baseUrl }) {
+  const loader = input.cursorCloudClientLoader ?? defaultCursorCloudClientLoader;
+  const sdk = await loader();
+  const Client = sdk.CloudApiClient;
+  if (typeof Client !== "function") {
+    throw new Error("@cursor/sdk does not expose CloudApiClient.");
+  }
+  return new Client(apiKey, baseUrl);
+}
+
+async function cloudClientForOperation(input) {
+  const project = input.project;
+  const config = input.config ?? cursorConfigForProject(project, input.workspace?.path ?? project?.canonicalPath ?? process.cwd(), input.model);
+  assertCloudConfigReady(config.cloud);
+  const apiKey = apiKeyFromEnv(config.cloud.apiKeyEnv);
+  return createCloudClient({ input, apiKey, baseUrl: config.cloud.baseUrl });
+}
+
+function cloudAgentRequest({ issueId, prompt, config }) {
+  const repo = {
+    url: config.cloud.repositoryUrl,
+    startingRef: config.cloud.startingRef
+  };
+  return {
+    name: `${issueId} cloud runner`,
+    prompt: { text: prompt },
+    model: { id: config.model },
+    env: config.cloud.environment,
+    repos: [repo],
+    workOnCurrentBranch: config.cloud.workOnCurrentBranch,
+    autoCreatePR: config.cloud.autoCreatePR,
+    skipReviewerRequest: config.cloud.skipReviewerRequest
+  };
+}
+
+async function listCloudArtifactsWithUrls(client, agentId) {
+  const listed = await client.listArtifacts(agentId);
+  const items = Array.isArray(listed?.items) ? listed.items : [];
+  return Promise.all(items.map(async (artifact) => {
+    try {
+      const download = await client.getArtifactDownloadUrl({ agentId, path: artifact.path });
+      return {
+        ...artifact,
+        url: download.url,
+        expiresAt: download.expiresAt
+      };
+    } catch (error) {
+      return {
+        ...artifact,
+        error: errorMessage(error)
+      };
+    }
+  }));
+}
+
+function cursorCloudResult({ issueId, prompt, config, agent, run, artifacts = [], runRecord, event, dryRun }) {
+  return {
+    issueId,
+    dryRun,
+    runtime: "cloud",
+    status: normalizeRunStatus(run?.status ?? "running"),
+    prompt,
+    model: config.model,
+    cwd: undefined,
+    configPath: config.resolvedConfigPath,
+    apiKeyEnv: config.cloud.apiKeyEnv,
+    agentId: agent?.id,
+    runId: run?.id,
+    summary: summarizeCloudRun(run),
+    repositoryUrl: config.cloud.repositoryUrl,
+    startingRef: config.cloud.startingRef,
+    agentUrl: agent?.url,
+    prLinks: prLinksFromCloudRun(run),
+    artifacts,
+    run: runRecord,
+    event
+  };
+}
+
+function cloudEventPayload({ agent, run, prompt, config, workspace }) {
+  return {
+    agentId: agent?.id,
+    runId: run?.id,
+    model: config.model,
+    prompt,
+    runtime: "cloud",
+    cwd: workspace?.path,
+    repositoryUrl: config.cloud.repositoryUrl,
+    startingRef: config.cloud.startingRef,
+    agentUrl: agent?.url,
+    status: normalizeRunStatus(run?.status),
+    rawStatus: run?.status,
+    prLinks: prLinksFromCloudRun(run),
+    run,
+    agent
+  };
+}
+
+function prLinksFromCloudRun(run) {
+  const branches = run?.git?.branches;
+  if (!Array.isArray(branches)) return [];
+  return branches
+    .filter((branch) => typeof branch?.prUrl === "string" && branch.prUrl.length > 0)
+    .map((branch) => ({
+      url: branch.prUrl,
+      branch: branch.branch,
+      repositoryUrl: branch.repoUrl
+    }));
+}
+
+function summarizeCloudRun(run) {
+  if (typeof run?.result === "string" && run.result.trim().length > 0) {
+    return truncate(run.result.trim(), 1000);
+  }
+  const status = normalizeRunStatus(run?.status ?? "running");
+  const prLinks = prLinksFromCloudRun(run);
+  if (prLinks.length > 0) return `Cursor cloud run ${status}; PR ${prLinks[0].url}`;
+  return `Cursor cloud run ${status}`;
+}
+
+function finishedAtForStatus(status, timestamp) {
+  if (["finished", "error", "cancelled"].includes(status)) return timestamp;
+  return undefined;
 }
 
 function summarizeCursorStreamEvent(event) {
@@ -457,7 +904,8 @@ function normalizeRunStatus(value) {
   const status = String(value ?? "running").toLowerCase();
   if (status === "finished" || status === "success" || status === "done") return "finished";
   if (status === "cancelled" || status === "canceled") return "cancelled";
-  if (status === "error" || status === "failed" || status === "failure") return "error";
+  if (status === "error" || status === "failed" || status === "failure" || status === "expired") return "error";
+  if (status === "creating" || status === "queued" || status === "pending") return "running";
   return "running";
 }
 
@@ -501,6 +949,14 @@ function sanitizePrompt(value) {
 function sanitizeModel(value) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error("model must be a non-empty string.");
+  }
+
+  return value.trim();
+}
+
+function sanitizeRequiredString(value, fieldName) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${fieldName} must be a non-empty string.`);
   }
 
   return value.trim();

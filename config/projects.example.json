@@ -56,7 +56,19 @@
         "cursor": {
           "model": "composer-2",
           "configPath": ".cursor",
-          "apiKeyEnv": "CURSOR_API_KEY"
+          "apiKeyEnv": "CURSOR_API_KEY",
+          "cloud": {
+            "enabled": false,
+            "apiKeyEnv": "CURSOR_API_KEY",
+            "repositoryUrl": "https://github.com/DylanMcCavitt/workflow-hub",
+            "startingRef": "main",
+            "environment": {
+              "type": "cloud"
+            },
+            "autoCreatePR": true,
+            "workOnCurrentBranch": false,
+            "skipReviewerRequest": false
+          }
         }
       }
     }

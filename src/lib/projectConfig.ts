@@ -38,6 +38,22 @@ export interface ProjectCursorRunnerConfig {
   model?: string;
   configPath?: string;
   apiKeyEnv?: string;
+  cloud?: ProjectCursorCloudRunnerConfig;
+}
+
+export interface ProjectCursorCloudRunnerConfig {
+  enabled?: boolean;
+  apiKeyEnv?: string;
+  baseUrl?: string;
+  repositoryUrl?: string;
+  startingRef?: string;
+  environment?: {
+    type?: "cloud" | "pool" | "machine";
+    name?: string;
+  };
+  autoCreatePR?: boolean;
+  workOnCurrentBranch?: boolean;
+  skipReviewerRequest?: boolean;
 }
 
 export interface ProjectIosConfig {

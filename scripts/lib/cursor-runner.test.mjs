@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   cursorConfigForProject,
+  fetchCursorCloudResult,
+  startCursorCloudRun,
   startCursorLocalRun
 } from "./cursor-runner.mjs";
 import {
@@ -80,6 +82,29 @@ test("resolves Cursor config paths relative to the issue worktree", () => {
   assert.equal(config.configPath, ".cursor");
   assert.equal(config.resolvedConfigPath, "/worktrees/workflow-hub/AGE-361/.cursor");
   assert.equal(config.apiKeyEnv, "CURSOR_API_KEY");
+  assert.equal(config.cloud.enabled, false);
+});
+
+test("normalizes Cursor cloud config without exposing key values", () => {
+  const config = cursorConfigForProject({
+    runners: {
+      cursor: {
+        model: "composer-2",
+        apiKeyEnv: "CURSOR_API_KEY",
+        cloud: {
+          enabled: true,
+          repositoryUrl: "https://github.com/DylanMcCavitt/workflow-hub",
+          startingRef: "main"
+        }
+      }
+    }
+  }, "/worktrees/workflow-hub/AGE-362");
+
+  assert.equal(config.cloud.enabled, true);
+  assert.equal(config.cloud.apiKeyEnv, "CURSOR_API_KEY");
+  assert.equal(config.cloud.repositoryUrl, "https://github.com/DylanMcCavitt/workflow-hub");
+  assert.equal(config.cloud.environment.type, "cloud");
+  assert.equal(config.cloud.autoCreatePR, true);
 });
 
 test("starts a local Cursor SDK run with the issue worktree cwd and persists stream events", async (t) => {
@@ -211,4 +236,185 @@ test("dry-run validates the local Cursor target without creating registry record
   assert.equal(result.configPath, "/worktrees/workflow-hub/AGE-361/.cursor");
   assert.equal(repository.listIssueRuns(issue.id).length, 0);
   assert.equal(repository.listIssueEvents(issue.id).length, 0);
+});
+
+test("starts a Cursor cloud run and persists PR link metadata", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+  const oldApiKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-cursor-key";
+  t.after(() => {
+    if (oldApiKey === undefined) {
+      delete process.env.CURSOR_API_KEY;
+    } else {
+      process.env.CURSOR_API_KEY = oldApiKey;
+    }
+  });
+  const cloudProject = {
+    ...project,
+    runners: {
+      cursor: {
+        ...project.runners.cursor,
+        cloud: {
+          enabled: true,
+          repositoryUrl: "https://github.com/DylanMcCavitt/workflow-hub",
+          startingRef: "main",
+          autoCreatePR: true
+        }
+      }
+    }
+  };
+  let createRequest;
+  class FakeCloudApiClient {
+    constructor(apiKey) {
+      assert.equal(apiKey, "test-cursor-key");
+    }
+
+    async createAgent(request) {
+      createRequest = request;
+      return {
+        agent: {
+          id: "cloud-agent-1",
+          url: "https://cursor.com/agents/cloud-agent-1",
+          status: "ACTIVE",
+          createdAt: "2026-05-05T12:00:00.000Z",
+          updatedAt: "2026-05-05T12:00:00.000Z"
+        },
+        run: {
+          id: "cloud-run-1",
+          agentId: "cloud-agent-1",
+          status: "RUNNING",
+          createdAt: "2026-05-05T12:00:00.000Z",
+          updatedAt: "2026-05-05T12:00:00.000Z",
+          git: {
+            branches: [
+              {
+                repoUrl: "https://github.com/DylanMcCavitt/workflow-hub",
+                branch: "cursor/cloud-run-1",
+                prUrl: "https://github.com/DylanMcCavitt/workflow-hub/pull/42"
+              }
+            ]
+          }
+        }
+      };
+    }
+  }
+
+  const result = await startCursorCloudRun({
+    issueId: "AGE-361",
+    prompt: "Run in cloud.",
+    project: cloudProject,
+    state,
+    workspace: state.workspace,
+    repository,
+    cursorCloudClientLoader: async () => ({ CloudApiClient: FakeCloudApiClient }),
+    clock: () => new Date("2026-05-05T12:00:00.000Z")
+  });
+
+  assert.equal(createRequest.repos[0].url, "https://github.com/DylanMcCavitt/workflow-hub");
+  assert.equal(createRequest.repos[0].startingRef, "main");
+  assert.equal(createRequest.autoCreatePR, true);
+  assert.equal(result.runtime, "cloud");
+  assert.equal(result.agentId, "cloud-agent-1");
+  assert.equal(result.runId, "cloud-run-1");
+  assert.equal(result.prLinks[0].url, "https://github.com/DylanMcCavitt/workflow-hub/pull/42");
+
+  const issue = repository.getIssueByIdentifier("workflow-hub", "AGE-361");
+  const runs = repository.listIssueRuns(issue.id);
+  const events = repository.listIssueEvents(issue.id);
+  assert.equal(runs[0].metadata.runtime, "cloud");
+  assert.equal(runs[0].metadata.repositoryUrl, "https://github.com/DylanMcCavitt/workflow-hub");
+  assert.equal(events[0].type, "cursor.cloud.run.started");
+});
+
+test("fetches Cursor cloud run status with artifact URLs", async (t) => {
+  const repository = memoryRepository();
+  t.after(() => repository.close());
+  const oldApiKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-cursor-key";
+  t.after(() => {
+    if (oldApiKey === undefined) {
+      delete process.env.CURSOR_API_KEY;
+    } else {
+      process.env.CURSOR_API_KEY = oldApiKey;
+    }
+  });
+  const cloudProject = {
+    ...project,
+    runners: {
+      cursor: {
+        ...project.runners.cursor,
+        cloud: {
+          enabled: true,
+          repositoryUrl: "https://github.com/DylanMcCavitt/workflow-hub"
+        }
+      }
+    }
+  };
+  class FakeCloudApiClient {
+    async getAgent(agentId) {
+      return {
+        id: agentId,
+        url: `https://cursor.com/agents/${agentId}`,
+        status: "ACTIVE"
+      };
+    }
+
+    async getRun({ agentId, runId }) {
+      return {
+        id: runId,
+        agentId,
+        status: "FINISHED",
+        createdAt: "2026-05-05T12:00:00.000Z",
+        updatedAt: "2026-05-05T12:05:00.000Z",
+        result: "Opened a PR.",
+        git: {
+          branches: [
+            {
+              repoUrl: "https://github.com/DylanMcCavitt/workflow-hub",
+              branch: "cursor/cloud-run-1",
+              prUrl: "https://github.com/DylanMcCavitt/workflow-hub/pull/42"
+            }
+          ]
+        }
+      };
+    }
+
+    async listArtifacts() {
+      return {
+        items: [
+          {
+            path: "/opt/cursor/artifacts/demo.png",
+            sizeBytes: 1024,
+            updatedAt: "2026-05-05T12:05:00.000Z"
+          }
+        ]
+      };
+    }
+
+    async getArtifactDownloadUrl({ path }) {
+      return {
+        url: `https://cursor.com/artifacts/${encodeURIComponent(path)}`,
+        expiresAt: "2026-05-05T13:05:00.000Z"
+      };
+    }
+  }
+
+  const result = await fetchCursorCloudResult({
+    issueId: "AGE-361",
+    agentId: "cloud-agent-1",
+    runId: "cloud-run-1",
+    project: cloudProject,
+    state,
+    workspace: state.workspace,
+    repository,
+    cursorCloudClientLoader: async () => ({ CloudApiClient: FakeCloudApiClient }),
+    clock: () => new Date("2026-05-05T12:06:00.000Z")
+  });
+
+  assert.equal(result.status, "finished");
+  assert.equal(result.summary, "Opened a PR.");
+  assert.equal(result.artifacts[0].path, "/opt/cursor/artifacts/demo.png");
+  assert.match(result.artifacts[0].url, /cursor\.com\/artifacts/);
+  assert.equal(result.prLinks[0].url, "https://github.com/DylanMcCavitt/workflow-hub/pull/42");
 });

@@ -311,7 +311,7 @@ export function buildSecurityGuardrailState({ project, env = process.env, genera
 
 function credentialStates(project, env) {
   const linearConfigured = Boolean(project?.linear && Object.keys(project.linear).length > 0);
-  const cursorApiKeyEnv = project?.runners?.cursor?.apiKeyEnv;
+  const cursorApiKeyEnv = project?.runners?.cursor?.cloud?.apiKeyEnv ?? project?.runners?.cursor?.apiKeyEnv;
 
   return [
     {

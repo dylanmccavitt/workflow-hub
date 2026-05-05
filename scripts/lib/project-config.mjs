@@ -17,6 +17,7 @@ const DEFAULT_DERIVED_DATA_ROOT = "/tmp";
 const DEFAULT_CURSOR_MODEL = "composer-2";
 const DEFAULT_CURSOR_CONFIG_PATH = ".cursor";
 const DEFAULT_CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
+const DEFAULT_CURSOR_CLOUD_ENV_TYPE = "cloud";
 const DEFAULT_CODEX_COMMAND = "codex";
 const DEFAULT_CODEX_SANDBOX = "workspace-write";
 const DEFAULT_CODEX_APPROVAL_POLICY = "never";
@@ -318,6 +319,9 @@ function validateProject(project, index, seenIds) {
           if (cursor.apiKeyEnv !== undefined && !ENV_VAR_NAME_PATTERN.test(cursor.apiKeyEnv)) {
             errors.push(`${prefix}.runners.cursor.apiKeyEnv must be an environment variable name`);
           }
+          if (cursor.cloud !== undefined) {
+            validateCursorCloudConfig(errors, cursor.cloud, `${prefix}.runners.cursor.cloud`);
+          }
         }
       }
       const codex = project.runners.codex;
@@ -399,7 +403,10 @@ function normalizeProject(project) {
           ? {
               model: project.runners.cursor.model ?? DEFAULT_CURSOR_MODEL,
               configPath: project.runners.cursor.configPath ?? DEFAULT_CURSOR_CONFIG_PATH,
-              apiKeyEnv: project.runners.cursor.apiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV
+              apiKeyEnv: project.runners.cursor.apiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV,
+              cloud: project.runners.cursor.cloud
+                ? normalizeCursorCloudConfig(project.runners.cursor.cloud, project.runners.cursor.apiKeyEnv)
+                : undefined
             }
           : undefined,
         codex: project.runners.codex
@@ -428,6 +435,56 @@ function normalizeProject(project) {
     branchTemplate: project.worktrees.branchTemplate ?? "feat/{issueIdLower}-{slug}",
     runners,
     ios
+  };
+}
+
+function validateCursorCloudConfig(errors, cloud, prefix) {
+  if (!isRecord(cloud)) {
+    errors.push(`${prefix} must be an object when present`);
+    return;
+  }
+
+  if (cloud.enabled !== undefined && typeof cloud.enabled !== "boolean") {
+    errors.push(`${prefix}.enabled must be a boolean when present`);
+  }
+  validateOptionalString(errors, cloud.apiKeyEnv, `${prefix}.apiKeyEnv`);
+  if (cloud.apiKeyEnv !== undefined && !ENV_VAR_NAME_PATTERN.test(cloud.apiKeyEnv)) {
+    errors.push(`${prefix}.apiKeyEnv must be an environment variable name`);
+  }
+  validateOptionalString(errors, cloud.baseUrl, `${prefix}.baseUrl`);
+  validateOptionalString(errors, cloud.repositoryUrl, `${prefix}.repositoryUrl`);
+  validateOptionalString(errors, cloud.startingRef, `${prefix}.startingRef`);
+  if (cloud.environment !== undefined) {
+    if (!isRecord(cloud.environment)) {
+      errors.push(`${prefix}.environment must be an object when present`);
+    } else {
+      if (cloud.environment.type !== undefined && !["cloud", "pool", "machine"].includes(cloud.environment.type)) {
+        errors.push(`${prefix}.environment.type must be cloud, pool, or machine`);
+      }
+      validateOptionalString(errors, cloud.environment.name, `${prefix}.environment.name`);
+    }
+  }
+  for (const fieldName of ["autoCreatePR", "workOnCurrentBranch", "skipReviewerRequest"]) {
+    if (cloud[fieldName] !== undefined && typeof cloud[fieldName] !== "boolean") {
+      errors.push(`${prefix}.${fieldName} must be a boolean when present`);
+    }
+  }
+}
+
+function normalizeCursorCloudConfig(cloud, fallbackApiKeyEnv) {
+  return {
+    enabled: cloud.enabled === true,
+    apiKeyEnv: cloud.apiKeyEnv ?? fallbackApiKeyEnv ?? DEFAULT_CURSOR_API_KEY_ENV,
+    baseUrl: cloud.baseUrl,
+    repositoryUrl: cloud.repositoryUrl,
+    startingRef: cloud.startingRef,
+    environment: {
+      type: cloud.environment?.type ?? DEFAULT_CURSOR_CLOUD_ENV_TYPE,
+      name: cloud.environment?.name
+    },
+    autoCreatePR: cloud.autoCreatePR !== false,
+    workOnCurrentBranch: cloud.workOnCurrentBranch === true,
+    skipReviewerRequest: cloud.skipReviewerRequest === true
   };
 }
 

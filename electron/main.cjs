@@ -202,6 +202,58 @@ async function startCursorRun(_event, input) {
 
 ipcMain.handle("workflow-hub:start-cursor-run", startCursorRun);
 
+function cursorCloudOperationArgs(command, input, options = {}) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Cursor cloud input must be an object.");
+  }
+  if (typeof input.issueId !== "string") {
+    throw new Error("issueId must be a string.");
+  }
+  if (typeof input.agentId !== "string" || input.agentId.trim().length === 0) {
+    throw new Error("agentId must be a non-empty string.");
+  }
+  if (options.runRequired !== false && (typeof input.runId !== "string" || input.runId.trim().length === 0)) {
+    throw new Error("runId must be a non-empty string.");
+  }
+  if (options.promptRequired === true && (typeof input.prompt !== "string" || input.prompt.trim().length === 0)) {
+    throw new Error("prompt must be a non-empty string.");
+  }
+
+  return runWorkflowJsonCommand([
+    command,
+    input.issueId,
+    "--payload",
+    encodeJsonPayload(input)
+  ]);
+}
+
+async function cursorCloudStatus(_event, input) {
+  return cursorCloudOperationArgs("cursor-cloud-status", input);
+}
+
+ipcMain.handle("workflow-hub:cursor-cloud-status", cursorCloudStatus);
+
+async function resumeCursorCloudRun(_event, input) {
+  return cursorCloudOperationArgs("cursor-cloud-resume", input, {
+    runRequired: false,
+    promptRequired: true
+  });
+}
+
+ipcMain.handle("workflow-hub:resume-cursor-cloud-run", resumeCursorCloudRun);
+
+async function cancelCursorCloudRun(_event, input) {
+  return cursorCloudOperationArgs("cursor-cloud-cancel", input);
+}
+
+ipcMain.handle("workflow-hub:cancel-cursor-cloud-run", cancelCursorCloudRun);
+
+async function fetchCursorCloudResult(_event, input) {
+  return cursorCloudOperationArgs("cursor-cloud-result", input);
+}
+
+ipcMain.handle("workflow-hub:fetch-cursor-cloud-result", fetchCursorCloudResult);
+
 async function dispatchReady(_event, input) {
   if (!input || typeof input !== "object") {
     throw new Error("dispatch input must be an object.");
